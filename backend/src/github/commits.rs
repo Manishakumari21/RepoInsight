@@ -1,22 +1,84 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 use super::client::GithubClient;
 
-#[derive(Debug, Deserialize, Serialize)]
+const COMMITS_PER_PAGE: usize = 100;
+const MAX_COMMITS_TO_RETRIEVE: usize = 1000;
+const MAX_CONCURRENT_DETAIL_REQUESTS: usize = 8;
+
+#[derive(Debug, Clone)]
+pub struct CommitFetchConfig {
+    pub per_page: usize,
+
+    pub max_commits: usize,
+
+    pub max_concurrent_detail_requests: usize,
+}
+
+impl Default for CommitFetchConfig {
+    fn default() -> Self {
+        Self {
+            per_page: COMMITS_PER_PAGE,
+            max_commits: MAX_COMMITS_TO_RETRIEVE,
+            max_concurrent_detail_requests: MAX_CONCURRENT_DETAIL_REQUESTS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Commit {
     pub sha: String,
     pub message: String,
     pub author: Option<CommitAuthor>,
     pub date: Option<String>,
     pub url: String,
+    pub stats: CommitStats,
+    pub files: Vec<ChangedFile>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommitAuthor {
     pub name: String,
     pub email: Option<String>,
     pub date: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CommitStats {
+    pub additions: u64,
+    pub deletions: u64,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ChangedFile {
+    pub filename: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub changes: u64,
+    pub status: FileChangeStatus,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileChangeStatus {
+    Added,
+    Modified,
+    Removed,
+    Renamed,
+    Copied,
+    Changed,
+    Unchanged,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCommitSummary {
+    sha: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,6 +86,8 @@ struct GithubCommit {
     sha: String,
     commit: CommitDetails,
     html_url: String,
+    stats: Option<CommitStats>,
+    files: Option<Vec<ChangedFile>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,16 +108,136 @@ impl From<GithubCommit> for Commit {
                 .and_then(|author| author.date.clone()),
             author: commit.commit.author,
             url: commit.html_url,
+            stats: commit.stats.unwrap_or_default(),
+            files: commit.files.unwrap_or_default(),
         }
     }
 }
 
 impl Commit {
     pub async fn fetch(client: &GithubClient, owner: &str, repo: &str) -> Result<Vec<Self>> {
-        let endpoint = format!("/repos/{owner}/{repo}/commits?per_page=30");
+        Self::fetch_with(client, owner, repo, CommitFetchConfig::default()).await
+    }
 
-        let commits: Vec<GithubCommit> = client.get(&endpoint).await?;
+    pub async fn fetch_with(
+        client: &GithubClient,
+        owner: &str,
+        repo: &str,
+        config: CommitFetchConfig,
+    ) -> Result<Vec<Self>> {
+        let shas = list_commit_shas(client, owner, repo, &config).await?;
 
-        Ok(commits.into_iter().map(Self::from).collect())
+        let commits = fetch_commit_details(client, owner, repo, &shas, &config).await;
+
+        Ok(commits)
+    }
+}
+
+async fn list_commit_shas(
+    client: &GithubClient,
+    owner: &str,
+    repo: &str,
+    config: &CommitFetchConfig,
+) -> Result<Vec<String>> {
+    let mut shas = Vec::new();
+    let mut page = 1_u32;
+
+    loop {
+        if shas.len() >= config.max_commits {
+            break;
+        }
+
+        let remaining = config.max_commits - shas.len();
+        let per_page = config.per_page.min(remaining).max(1);
+
+        let endpoint = format!("/repos/{owner}/{repo}/commits?per_page={per_page}&page={page}");
+
+        let batch: Vec<GithubCommitSummary> = client.get(&endpoint).await?;
+
+        if batch.is_empty() {
+            break;
+        }
+
+        for summary in batch {
+            shas.push(summary.sha);
+        }
+
+        if shas.len() < config.max_commits {
+            page += 1;
+        } else {
+            break;
+        }
+    }
+
+    if !shas.is_empty() && shas.len() >= config.max_commits {
+        eprintln!(
+            "Warning: commit history collection reached the configured maximum \
+             of {} commits; results may be truncated",
+            config.max_commits
+        );
+    }
+
+    Ok(shas)
+}
+
+async fn fetch_commit_details(
+    client: &GithubClient,
+    owner: &str,
+    repo: &str,
+    shas: &[String],
+    config: &CommitFetchConfig,
+) -> Vec<Commit> {
+    if shas.is_empty() {
+        return Vec::new();
+    }
+
+    let semaphore = Arc::new(Semaphore::new(config.max_concurrent_detail_requests));
+    let mut tasks = JoinSet::new();
+
+    for sha in shas {
+        let client = client.clone();
+        let semaphore = Arc::clone(&semaphore);
+        let owner = owner.to_owned();
+        let repo = repo.to_owned();
+        let sha = sha.clone();
+
+        tasks.spawn(async move {
+            let _permit = semaphore.acquire().await?;
+
+            let endpoint = format!("/repos/{owner}/{repo}/commits/{sha}");
+
+            client
+                .get::<GithubCommit>(&endpoint)
+                .await
+                .map(Commit::from)
+        });
+    }
+
+    let mut by_sha: HashMap<String, Commit> = HashMap::new();
+
+    while let Some(result) = tasks.join_next().await {
+        match result {
+            Ok(Ok(commit)) => {
+                by_sha.insert(commit.sha.clone(), commit);
+            }
+            Ok(Err(error)) => {
+                eprintln!("Warning: failed to fetch commit details: {error}");
+            }
+            Err(error) => {
+                eprintln!("Warning: commit detail task failed to join: {error}");
+            }
+        }
+    }
+
+    shas.iter().filter_map(|sha| by_sha.remove(sha)).collect()
+}
+
+impl Default for CommitStats {
+    fn default() -> Self {
+        Self {
+            additions: 0,
+            deletions: 0,
+            total: 0,
+        }
     }
 }

@@ -1,315 +1,770 @@
-RepoInsight — Project Phases
-Phase 1 — Project Foundation
+# RepoInsight — Development Phases
 
-Goal: Set up the project structure and development environment.
+## Project Goal
 
-Create backend/, ml/, frontend/, docs/, tests/
-Initialize Rust + Axum backend
-Initialize Python ML environment
-Initialize React + TypeScript frontend
-Define API structure
-Add .gitignore
-Update README
+RepoInsight is a repository intelligence system designed to answer:
 
-Output: Empty but working full-stack project.
+> **If a developer changes this part of a repository, what else is likely to change or require rework?**
 
-Phase 2 — GitHub Repository Collector
+The system combines repository structure with historical Git behavior to predict **change propagation and rework risk**.
 
-Goal: Accept a GitHub URL and collect repository information.
+---
 
-Build:
+# Phase 1 — Project Foundation
 
-GitHub URL validation
-Repository metadata collection
-File tree collection
-Commit history collection
-Contributors
-Issues / PR information
-Repository language information
+**Status: ✅ Complete**
+
+### Goal
+
+Create the base project structure and development environments.
+
+### Completed
+
+* [x] Initialize Git repository
+* [x] Create Rust backend
+* [x] Configure Axum/Tokio
+* [x] Create Python ML environment
+* [x] Configure NumPy/Pandas/scikit-learn
+* [x] Create React + TypeScript + Vite frontend
+* [x] Add documentation structure
+* [x] Add `.gitignore`
+* [x] Verify backend compilation
+* [x] Verify frontend build
+
+### Result
+
+RepoInsight has a working multi-component development foundation.
+
+---
+
+# Phase 2 — GitHub Repository Collector
+
+**Status: ✅ Complete**
+
+### Goal
+
+Collect enough repository information to perform automated analysis on arbitrary GitHub repositories.
+
+### Repository Metadata
+
+* [x] Repository name
+* [x] Description
+* [x] Default branch
+* [x] Primary language
+* [x] Stars
+* [x] Forks
+* [x] Open issues
+* [x] Repository size
+
+### File Collection
+
+* [x] Retrieve Git tree
+* [x] Detect source-file candidates
+* [x] Ignore common binary files
+* [x] Limit source-file size
+* [x] Retrieve source contents
+* [x] Decode GitHub Base64 blobs
+* [x] Support concurrent source requests
+
+### Commit Collection
+
+* [x] Retrieve commit summaries
+* [x] Paginate commit history
+* [x] Support up to 100 commits/page
+* [x] Limit maximum history collection
+* [x] Retrieve detailed commit information
+* [x] Retrieve changed files
+* [x] Retrieve additions/deletions
+* [x] Track commit authors
+* [x] Use bounded concurrent detail requests
+
+### API Client
+
+* [x] Centralized GitHub client
+* [x] Relative API endpoint support
+* [x] Full GitHub API URL support
+* [x] HTTP error handling
+* [x] JSON response parsing
+
+### Result
+
+Raw repository structure and Git history can now be collected programmatically.
+
+---
+
+# Phase 3 — Repository Intelligence Foundation
+
+**Status: 🚧 In Progress**
+
+### Goal
+
+Transform raw repository data into structured information that can later be used for temporal modeling.
+
+---
+
+## 3.1 Source Analysis
+
+* [x] Source-file representation
+* [x] Source line counting
+* [x] Source size calculation
+* [x] Binary-file filtering
+* [x] Source collection pipeline
+
+### Remaining
+
+* [ ] Normalize source metadata
+* [ ] Add file-level analysis records
+* [ ] Connect source analysis to repository analysis
+
+---
+
+## 3.2 Tree-sitter Parsing
+
+* [x] Add Tree-sitter
+* [x] Add Rust grammar
+* [x] Add Python grammar
+* [x] Add JavaScript grammar
+* [x] Add TypeScript grammar
+* [x] Add TSX grammar
+* [x] Centralized language detection
+* [x] Parser abstraction
+* [ ] Validate parser tests
+* [ ] Extract normalized syntax information
+
+### Important Design Rule
+
+Do **not** create separate analysis implementations such as:
+
+```text
+rust.rs
+python.rs
+javascript.rs
+typescript.rs
+```
+
+unless a language-specific behavior is genuinely required.
+
+Tree-sitter should feed a common representation.
+
+---
+
+## 3.3 Complexity Analysis
+
+* [x] Complexity result structure
+* [x] Cyclomatic complexity foundation
+* [x] Function counting
+* [x] Nesting-depth calculation
+* [x] Unit tests
+
+### Remaining
+
+* [ ] Connect complexity analysis to parsed source
+* [ ] Produce file-level complexity metrics
+* [ ] Validate metrics across supported languages
+
+---
+
+## 3.4 Dependency Analysis
+
+* [x] Dependency edge representation
+* [x] Duplicate-edge handling
+* [x] Self-dependency filtering
+* [x] Incoming dependency calculation
+* [x] Outgoing dependency calculation
+* [x] Coupling calculation
+* [x] Unit tests
+
+### Remaining
+
+* [ ] Extract dependency edges from parsed source
+* [ ] Normalize module/import relationships
+* [ ] Connect dependency analysis to repository files
+
+---
+
+## 3.5 Historical Analysis
+
+* [x] Commit-level history representation
+* [x] Contributor counting
+* [x] Changed-file counting
+* [x] File-level change counts
+* [x] Addition/deletion tracking
+* [x] Churn calculation
+
+### Remaining
+
+* [ ] Preserve chronological ordering
+* [ ] Build file change timelines
+* [ ] Represent commit change sets
+* [ ] Detect repeated change relationships
+
+---
+
+# Phase 4 — Temporal Change Propagation Engine
+
+**Status: ⏳ Planned**
+
+### Goal
+
+This is the central analytical component of RepoInsight.
+
+Move from:
+
+```text
+file → number of changes
+```
+
+to:
+
+```text
+change → subsequent changes → downstream effect → rework
+```
+
+---
+
+## 4.1 Change Timeline
+
+For every relevant file:
+
+* [ ] Construct chronological change history
+* [ ] Record commit timestamps
+* [ ] Record commit ordering
+* [ ] Record files changed together
+* [ ] Record additions/deletions
+* [ ] Track authors/contributors
 
 Example:
 
-GitHub URL
-    ↓
-GitHub API
-    ↓
-Repository Data
-    ├── Files
-    ├── Commits
-    ├── Contributors
-    ├── Issues
-    └── Pull Requests
+```text
+T1 ── A.py
+T2 ── A.py + B.py
+T3 ── B.py + C.py
+T4 ── A.py
+```
 
-Output: RepoInsight can understand the basic structure/history of a GitHub repository.
+---
 
-Phase 3 — Code & Repository Analysis
+## 4.2 Change Sequences
 
-Goal: Calculate the current state of the repository.
+Represent historical sequences such as:
 
-For each file/module, calculate things like:
+```text
+A → B
+A → B → C
+A → B → fix
+A → B → C → rework
+```
 
-LOC
-Cyclomatic complexity
-Number of functions/classes
-Dependencies
-Coupling
-File size
-Language
+### Tasks
 
-Git-based metrics:
+* [ ] Define change-window strategy
+* [ ] Generate ordered change sequences
+* [ ] Identify downstream changes
+* [ ] Detect repeated propagation patterns
+* [ ] Store historical examples
 
-Commit frequency
-Code churn
-Number of contributors
-Recent changes
-Bug-fix history
+---
 
-Output: A structured dataset describing each file.
+## 4.3 Co-change Analysis
 
-Phase 4 — Repository Intelligence Dashboard
+Determine which files repeatedly change together.
 
-Goal: Make the analysis useful before ML.
+```text
+A ───── B
+│       │
+│       └── C
+│
+└──── D
+```
 
-Create the first frontend.
+But co-change frequency should **not itself become the final risk score**.
 
-Dashboard should show:
+It is a feature for the temporal model.
 
-Repository Overview
-       │
-       ├── Complexity
-       ├── Most Changed Files
-       ├── Dependency Graph
-       ├── Current Hotspots
-       └── Repository Activity
+---
+
+## 4.4 Follow-up and Rework Detection
+
+Investigate patterns such as:
+
+```text
+Initial change
+      ↓
+Additional modification
+      ↓
+Correction / fix
+      ↓
+Rework
+```
+
+### Tasks
+
+* [ ] Define operational rework criteria
+* [ ] Identify follow-up changes
+* [ ] Identify likely corrective changes
+* [ ] Handle revert patterns
+* [ ] Validate detection rules
+* [ ] Measure false positives
+
+The definition of the prediction target must be experimentally justified rather than arbitrarily chosen.
+
+---
+
+# Phase 5 — Feature Engineering & Dataset Creation
+
+**Status: ⏳ Planned**
+
+### Goal
+
+Convert repository history and structure into ML-ready examples.
+
+Each training example should represent a realistic historical change.
+
+---
+
+## 5.1 Structural Features
+
+Potential features:
+
+* File size
+* Lines of code
+* Function count
+* Cyclomatic complexity
+* Maximum nesting depth
+* Incoming dependencies
+* Outgoing dependencies
+* Coupling
+* Number of dependents
+
+---
+
+## 5.2 Historical Features
+
+Potential features:
+
+* Previous change count
+* Recent change frequency
+* Historical churn
+* Number of contributors
+* Time since last change
+* Historical co-change frequency
+
+---
+
+## 5.3 Temporal Features
+
+Potential features:
+
+* Recent change sequence
+* Previous files changed
+* Change-window statistics
+* Change ordering
+* Propagation frequency
+* Follow-up frequency
+* Historical rework frequency
+
+---
+
+## 5.4 Dataset Construction
+
+* [ ] Define prediction unit
+* [ ] Define target label
+* [ ] Generate positive examples
+* [ ] Generate negative examples
+* [ ] Handle class imbalance
+* [ ] Remove invalid examples
+* [ ] Prevent duplicate examples
+* [ ] Prevent temporal leakage
+* [ ] Validate dataset quality
+
+---
+
+## 5.5 Chronological Splitting
+
+The primary experiment must respect time.
+
+```text
+Older commits                         Newer commits
+────────────────────────────────────────────────────►
+
+      Training       Validation        Test
+         │               │               │
+         ▼               ▼               ▼
+```
+
+Do **not** use a random split as the primary evaluation strategy.
+
+---
+
+# Phase 6 — ML Prediction
+
+**Status: ⏳ Planned**
+
+### Goal
+
+Train a model that predicts whether a change is likely to result in downstream modification or rework.
+
+---
+
+## 6.1 Baseline
+
+Implement:
+
+* [ ] Logistic Regression
+* [ ] Baseline metrics
+* [ ] Feature preprocessing
+
+The baseline establishes whether the engineered features contain useful predictive information.
+
+---
+
+## 6.2 Candidate Models
+
+Evaluate CPU-friendly models:
+
+* [ ] Random Forest
+* [ ] Gradient Boosting / XGBoost
+* [ ] Logistic Regression
+
+The final model should be selected based on measured performance rather than assumed superiority.
+
+---
+
+## 6.3 Evaluation
+
+Measure:
+
+* [ ] Precision
+* [ ] Recall
+* [ ] F1
+* [ ] ROC-AUC
+* [ ] PR-AUC
+* [ ] Calibration
+
+Particular attention should be given to precision/recall because false risk warnings can reduce developer trust.
+
+---
+
+## 6.4 Model Validation
+
+* [ ] Chronological validation
+* [ ] Cross-repository evaluation where possible
+* [ ] Feature ablation
+* [ ] Baseline comparison
+* [ ] Error analysis
+* [ ] Model persistence
+
+---
+
+# Phase 7 — Prediction Explanation
+
+**Status: ⏳ Planned**
+
+### Goal
+
+Make predictions understandable and evidence-backed.
+
+A result should contain:
+
+```text
+Prediction
+    +
+Confidence
+    +
+Important features
+    +
+Historical evidence
+    +
+Potential downstream files
+```
 
 Example:
 
-Repository Health
-
-Files              342
-Commits            2,841
-Contributors       27
-
-High Complexity    18 files
-High Churn         24 files
-Hotspots           11 files
-
-Output: User can enter a repo and actually explore it.
-
-Phase 5 — Dataset Creation for ML ⭐
-
-This is one of the most important phases.
-
-We need historical repository data.
-
-Instead of:
-
-Current file → predict risk
-
-we want:
-
-Past state of file
-       ↓
-What happened afterward?
-       ↓
-Did it become a maintenance hotspot?
-
-Build a dataset containing:
-
-File + Historical Features → Future Outcome
-
-Features could include:
-
-Complexity
-LOC
-Churn
-Commit frequency
-Contributors
-Dependencies
-Previous bug fixes
-Complexity growth
+```text
+Risk: HIGH
 
 Target:
+src/payment/service.py
 
-Did this file become a maintenance hotspot in the next N commits/time period?
+Prediction:
+Likely downstream modification
 
-Output: Training dataset.
+Historical evidence:
+Frequently changed with orders/service.py
 
-Phase 6 — ML Risk Prediction
+Temporal evidence:
+Previous payment changes were followed by
+orders and billing changes.
 
-Now train the models.
+Structural evidence:
+6 dependent modules
 
-Start simple:
+Confidence:
+0.82
+```
 
-Logistic Regression
-        ↓
-Random Forest
-        ↓
-XGBoost
+---
 
-Compare:
+## Explanation Requirements
 
-Accuracy
-Precision
-Recall
-F1
-ROC-AUC
+* [ ] Separate evidence from prediction
+* [ ] Show important contributing features
+* [ ] Show historical examples
+* [ ] Show predicted impact path
+* [ ] Provide confidence
+* [ ] Avoid unsupported explanations
 
-Most importantly, use time-based evaluation:
+Optional:
 
-Older repository history
-        ↓
-      TRAIN
-        ↓
-Newer repository history
-        ↓
-       TEST
+* [ ] SHAP-based model explanations
+* [ ] Natural-language explanation layer
+* [ ] RAG-based historical retrieval
 
-Don't randomly mix future commits into training data.
+RAG/LLM should remain optional and should **not determine the risk prediction**.
 
-Output:
+---
 
-File: src/analyzer.rs
+# Phase 8 — Interactive Dashboard
 
-Risk: 0.84
-Level: HIGH
-Phase 7 — Risk Explanation ⭐
+**Status: ⏳ Planned**
 
-A prediction alone isn't very useful.
+### Goal
 
-The developer should know:
+Provide a developer-friendly interface for exploring repository behavior.
 
-Why is this file risky?
+---
 
-Use SHAP to explain the ML prediction.
+## Repository Overview
 
-Example:
+* [ ] Repository metadata
+* [ ] Source statistics
+* [ ] Complexity overview
+* [ ] Dependency overview
+* [ ] Historical activity
 
-src/analyzer.rs
+---
 
-Risk: HIGH — 84%
+## Change-Risk View
 
-Main factors:
+Developer selects a file or change target:
 
-↑ High code churn          +24%
-↑ High complexity          +21%
-↑ Frequently modified      +18%
-↑ Many dependencies        +12%
-↓ Few contributors          -4%
+```text
+┌──────────────────────────────────┐
+│ src/payment/service.py           │
+├──────────────────────────────────┤
+│ Risk: HIGH                       │
+│ Confidence: 82%                  │
+│                                  │
+│ Likely impact:                   │
+│ payment → orders → billing       │
+│                                  │
+│ Historical evidence              │
+│ Structural evidence              │
+└──────────────────────────────────┘
+```
 
-This makes the project much more useful than simply saying:
+---
 
-"Risk = 84%"
+## Repository Exploration
 
-Output: Explainable risk predictions.
+* [ ] File-level analysis
+* [ ] Dependency graph
+* [ ] Change history
+* [ ] Propagation paths
+* [ ] Historical examples
+* [ ] Risk explanation
 
-Phase 8 — Repository Intelligence + Risk Integration
+---
 
-Now combine everything.
+# Phase 9 — Integration, Testing & Benchmarking
 
-                 RepoInsight
-                      │
-        ┌─────────────┴─────────────┐
-        ↓                           ↓
- Repository Understanding       Risk Analysis
-        │                           │
-   Complexity                  ML Prediction
-   Dependencies                Risk Score
-   Git History                 SHAP Explanation
-   Hotspots                    Future Hotspots
-        └─────────────┬─────────────┘
-                      ↓
-             Developer Dashboard
+**Status: ⏳ Planned**
 
-The user can click a file and see:
+### Goal
 
-src/analyzer.rs
+Turn the research prototype into a reliable working system.
 
-Complexity:     High
-Churn:          Very High
-Dependencies:   12
-Current Risk:   High
-Future Risk:    84%
+---
 
-Why?
-• Frequently modified
-• Complexity increasing
-• High dependency count
-• Previous bug-fix activity
-Phase 9 — Optional RAG / AI Explanation
+## Backend
 
-Don't start with this.
+* [ ] API integration tests
+* [ ] GitHub error handling
+* [ ] Large repository testing
+* [ ] Rate-limit handling
+* [ ] Request timeout handling
+* [ ] Bounded resource usage
 
-After the core system works, we can add RAG/LLM to answer questions such as:
+---
 
-"Why is this file difficult to maintain?"
+## ML
 
-"What does this module do?"
+* [ ] Reproducible training pipeline
+* [ ] Dataset versioning
+* [ ] Model versioning
+* [ ] Evaluation reports
+* [ ] Error analysis
+* [ ] Benchmark datasets
 
-"What should I be careful about when modifying it?"
+---
 
-RAG should explain the repository data, not decide the risk itself.
+## Performance
 
-Repository Data
+Measure:
+
+* Repository collection time
+* Source parsing time
+* History processing time
+* Feature-generation time
+* Prediction latency
+* Memory usage
+
+Test with:
+
+```text
+Small repository
+Medium repository
+Large repository
+```
+
+---
+
+# Phase 10 — Final Research Evaluation
+
+**Status: ⏳ Planned**
+
+### Goal
+
+Evaluate whether RepoInsight actually provides useful predictive information beyond simple static metrics.
+
+---
+
+## Experiments
+
+### Experiment 1 — Baseline
+
+Compare against simple historical/static features.
+
+```text
+Static metrics
       ↓
-Risk Model → Risk
-      ↓
-RAG/LLM → Human-readable explanation
+Baseline model
+```
 
-This keeps the ML part scientifically meaningful.
+### Experiment 2 — Temporal Features
 
-Phase 10 — Testing, Benchmarking & Finalization
+```text
+Static + historical features
+            ↓
+          Model
+```
 
-Test the complete system with multiple real repositories.
+### Experiment 3 — Temporal Change Sequences
 
-Evaluate:
+```text
+Static
+  +
+Historical
+  +
+Temporal sequences
+       ↓
+     Model
+```
 
-Repository collection accuracy
-Metric extraction
-ML performance
-Prediction quality
-API performance
-Frontend functionality
+### Experiment 4 — Ablation
 
-Then add:
+Remove feature groups individually:
 
-Docker setup
-Documentation
-Architecture diagram
-ML methodology
-Dataset documentation
-Demo repositories
-🗺️ Overall Roadmap
-PHASE 1
-Project Foundation
-       ↓
-PHASE 2
-GitHub Collector
-       ↓
-PHASE 3
-Code + Git Analysis
-       ↓
-PHASE 4
-Dashboard
-       ↓
-PHASE 5
-ML Dataset
-       ↓
-PHASE 6
-Risk Prediction
-       ↓
-PHASE 7
-Risk Explanation
-       ↓
-PHASE 8
-Full RepoInsight Integration
-       ↓
-PHASE 9
-Optional RAG/AI
-       ↓
-PHASE 10
-Testing + Benchmark + Final Demo
-⭐ Most important point
+```text
+Structure only
+History only
+Temporal only
+Structure + History
+Structure + History + Temporal
+```
 
+This helps determine whether temporal information actually improves prediction.
 
-Repository data → metrics → historical dataset → define risk → ML → explanation → UI
+---
+
+# Final System
+
+The intended final workflow is:
+
+```text
+                 GitHub Repository
+                        │
+              ┌─────────┴─────────┐
+              ▼                   ▼
+       Source Structure       Git History
+              │                   │
+              ▼                   ▼
+       Static Features      Temporal Features
+              │                   │
+              └─────────┬─────────┘
+                        ▼
+                 Feature Dataset
+                        │
+                        ▼
+                 Trained ML Model
+                        │
+                        ▼
+              Change Risk Prediction
+                        │
+             ┌──────────┴──────────┐
+             ▼                     ▼
+       Impact Prediction      Rework Risk
+             │                     │
+             └──────────┬──────────┘
+                        ▼
+                Evidence + Explanation
+                        │
+                        ▼
+                   Dashboard
+```
+
+---
+
+# Definition of Done
+
+RepoInsight will be considered complete when it can:
+
+1. Accept an arbitrary supported GitHub repository.
+2. Collect its source structure and historical changes.
+3. Build a chronological representation of repository evolution.
+4. Extract structural, historical, and temporal features.
+5. Construct leakage-safe training data.
+6. Train and evaluate a predictive model.
+7. Predict change propagation/rework risk for a target file or change.
+8. Provide historical evidence supporting the result.
+9. Explain the prediction without confusing model output with observed facts.
+10. Display the result through an interactive developer dashboard.
+
+---
+
+# Current Priority
+
+The immediate development order is:
+
+```text
+Phase 3
+   ↓
+Connect Tree-sitter to source analysis
+   ↓
+Build normalized file-level representation
+   ↓
+Phase 4
+   ↓
+Build chronological change representation
+   ↓
+Detect propagation/rework patterns
+   ↓
+Phase 5
+   ↓
+Create leakage-safe dataset
+   ↓
+Phase 6
+   ↓
+Train and evaluate ML model
+```
+

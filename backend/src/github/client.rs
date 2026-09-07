@@ -25,9 +25,16 @@ impl GithubClient {
     {
         let url = format!("{GITHUB_API_URL}{endpoint}");
 
+        self.get_url(&url).await
+    }
+
+    pub async fn get_url<T>(&self, url: &str) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
         let response = self
             .client
-            .get(&url)
+            .get(url)
             .send()
             .await
             .with_context(|| format!("failed to request GitHub API: {url}"))?;
