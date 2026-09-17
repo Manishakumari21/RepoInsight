@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::client::GithubClient;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RepositoryFile {
     pub path: String,
     #[serde(rename = "type")]
@@ -37,3 +37,4 @@ impl RepositoryFile {
         Ok(response.tree)
     }
 }
+

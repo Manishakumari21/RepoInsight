@@ -128,8 +128,8 @@ Transform raw repository data into structured information that can later be used
 * [x] Add TSX grammar
 * [x] Centralized language detection
 * [x] Parser abstraction
-* [ ] Validate parser tests
-* [ ] Extract normalized syntax information
+* [x] Validate parser tests
+* [x] Extract normalized syntax information
 
 ### Important Design Rule
 
@@ -173,12 +173,9 @@ Tree-sitter should feed a common representation.
 * [x] Outgoing dependency calculation
 * [x] Coupling calculation
 * [x] Unit tests
-
-### Remaining
-
-* [ ] Extract dependency edges from parsed source
-* [ ] Normalize module/import relationships
-* [ ] Connect dependency analysis to repository files
+* [x] Extract dependency edges from parsed source
+* [x] Normalize module/import relationships
+* [x] Connect dependency analysis to repository files
 
 ---
 
@@ -190,13 +187,13 @@ Tree-sitter should feed a common representation.
 * [x] File-level change counts
 * [x] Addition/deletion tracking
 * [x] Churn calculation
+* [x] Preserve chronological ordering
+* [x] Detect repeated change relationships
 
 ### Remaining
 
-* [ ] Preserve chronological ordering
 * [ ] Build file change timelines
 * [ ] Represent commit change sets
-* [ ] Detect repeated change relationships
 
 ---
 

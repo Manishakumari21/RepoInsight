@@ -232,6 +232,7 @@ RepoInsight/
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs
+│       ├── cache.rs (in-memory analysis cache, TTL 300s, cap 64)
 │       │
 │       ├── github/
 │       │   ├── mod.rs
@@ -243,7 +244,6 @@ RepoInsight/
 │       └── analysis/
 │           ├── mod.rs
 │           ├── analyzer.rs
-│           ├── repository.rs
 │           ├── source.rs
 │           ├── complexity.rs
 │           ├── dependencies.rs
@@ -261,7 +261,15 @@ RepoInsight/
 │       └── __init__.py
 │
 ├── frontend/
-│   └── React/Vite application
+│   └── src/
+│       ├── api.ts (single analysis client)
+│       ├── types.ts (mirrors backend RepositoryAnalysis)
+│       ├── config.ts, nav.ts
+│       ├── lib/ (derive, githubUrl, palette)
+│       └── components/ (Dashboard, Overview, Risk, Complexity,
+│           Hotspots, Explorer, Dependencies, History,
+│           Cochange, Settings, Sidebar, Topbar,
+│           Landing, Panel, Donut, Status)
 │
 ├── tests/
 │   ├── backend/
@@ -323,7 +331,25 @@ The collector:
 * Collects changed files
 * Collects additions/deletions
 * Tracks commit authors
-* Uses bounded concurrent requests
+* Returns commits in chronological order
+* Uses bounded concurrent requests (8)
+
+### Repository analysis
+
+```text
+GET /api/repositories/{owner}/{repo}/analysis
+```
+
+Returns the combined `RepositoryAnalysis` payload:
+
+* repository, source, complexity, history summaries
+* dependency analysis (top coupled files)
+* co-change pairs (top 50 by count)
+* temporal pairs (top 50 by occurrences, 7-day window with average delay)
+* propagation graph (top 100 edges combining temporal, co-change, and dependency signals)
+* hotspot scores with reasons
+* aggregate difficulty score
+* Served from in-memory cache when fresh (`no-store` on cache hit path)
 
 ### Source collection
 
@@ -334,11 +360,13 @@ The source-analysis layer:
 * Retrieves GitHub blobs
 * Decodes Base64 content
 * Ignores binary/non-UTF-8 content
-* Uses bounded concurrent requests
+* Uses bounded concurrent requests (8)
+* Retries transient blob/transport failures and skips files that still
+  fail instead of failing the whole analysis
 
 ### Static analysis foundation
 
-The current analysis layer includes foundations for:
+The current analysis layer includes:
 
 * Source statistics
 * Complexity analysis
@@ -346,6 +374,13 @@ The current analysis layer includes foundations for:
 * Historical activity analysis
 * Repository-level analysis models
 * Tree-sitter parsing
+* Dependency reference → file-path resolution
+* Chronological commit ordering
+* Co-change detection
+* Temporal change analysis (source → target pairs, 7-day window,
+  occurrences + average delay)
+* Propagation graph (temporal + co-change + dependency edges with
+  per-type flags and combined strength)
 
 ---
 
@@ -372,6 +407,8 @@ Tree-sitter is **not the core identity of RepoInsight**. It is a supporting comp
 # Temporal Change Analysis
 
 This is the core research direction of RepoInsight.
+
+Phase 4 is implemented: commits are sorted chronologically, files that repeatedly change together are detected (co-change), source → target changes within a 7-day window are tracked with occurrences and average delay (temporal analysis), and all three signals — dependency, temporal, co-change — are combined into a propagation graph exposed via the analysis response (`temporal.pairs`, `propagation.edges`). Generated paths (`.git`, `target`, `node_modules`, `dist`, `build`) are filtered out of the historical analysis.
 
 Instead of treating history as:
 
@@ -555,11 +592,13 @@ Model explanation techniques such as feature importance or SHAP may be added aft
 ## Phase 4 — Change Propagation Engine
 
 * [ ] File-level change sequences
-* [ ] Temporal change representation
-* [ ] Co-change relationships
-* [ ] Change propagation detection
+* [x] Temporal change representation (7-day window, occurrences + average delay, top 50 pairs)
+* [x] Co-change relationships (canonical pair counting, top 50 pairs)
+* [x] Change propagation detection (temporal + co-change + dependency graph, top 100 edges)
 * [ ] Follow-up/rework detection
 * [ ] Historical examples
+
+Note: commits are sorted chronologically and the propagation graph is exposed via `temporal.pairs` and `propagation.edges` in the analysis response (mirrored in frontend `types.ts`; no dashboard UI for it yet). Sequences, follow-up/rework detection, and historical examples are not implemented yet.
 
 ## Phase 5 — Dataset Creation
 
@@ -589,12 +628,16 @@ Model explanation techniques such as feature importance or SHAP may be added aft
 
 ## Phase 8 — Dashboard
 
-* [ ] Repository overview
+* [x] Repository overview
 * [ ] Change-risk view
 * [ ] Predicted impact graph
-* [ ] Historical evidence
-* [ ] File exploration
+* [x] Historical evidence (partial: history summary + co-change pairs)
+* [x] File exploration (hotspot/explorer tables)
 * [ ] Model explanation
+
+Note: no ML model exists yet, so no prediction, confidence, or model
+explanation is shown. Hotspot/difficulty scores are heuristic
+percentile signals, not ML predictions.
 
 ## Phase 9 — Finalization
 
@@ -649,9 +692,55 @@ Components should be added when they have a real responsibility rather than crea
 
 Current focus:
 
-> **Repository Intelligence → Temporal Change Propagation**
+> **Temporal Change Propagation → Dataset Creation**
 
-The GitHub collection layer and initial analysis foundations are in place. The next major step is transforming raw commit history into a meaningful **temporal change representation** that can later become the basis for dataset generation and prediction.
+The GitHub collection layer, analysis foundations, and temporal change propagation engine are in place. The next major step is turning the temporal/propagation representation into ML-ready training data (**Phase 5: dataset generation**).
+
+## Implementation status
+
+### Implemented
+
+* Repository metadata, file tree, and commit collection
+* Source-blob collection with size/binary/UTF-8 gating, transient-error
+  retries, and per-file fault tolerance
+* Tree-sitter parsing for Rust, Python, JavaScript, TypeScript, TSX
+* Per-file complexity and dependency-edge extraction
+* Chronological commit ordering, co-change pair counting, temporal
+  analysis (7-day window), and propagation graph
+* Heuristic hotspot and difficulty scoring
+* Dashboard overview, hotspot/explorer tables, dependency/history summaries
+* In-memory analysis cache and GitHub rate-limit handling (plus retries
+  for transient transport failures)
+
+### Partially implemented
+
+* Per-file LOC/functions/symbols are computed internally but only
+  aggregates are exposed in the API response
+* Dependency resolution is heuristic; unresolved references are
+  returned with a `$` prefix (and can appear as propagation targets)
+* History exposes totals, co-change pairs, temporal pairs, and the
+  propagation graph (no per-commit timeline, sequences, clusters,
+  or rework events yet)
+* Co-change pairs are canonicalized alphabetically while temporal and
+  dependency edges are directional, so the same file pair can appear
+  as separate propagation edges
+
+### Planned / not implemented
+
+* Change sequences, follow-up/rework detection, historical examples
+* Architecture graph, temporal slider, evolution replay, propagation UI
+* Impact Simulator, what-if analysis, evidence panel, explainability
+* ML dataset, model training, chronological evaluation
+* AI assistant, repository-context export, reports
+* Persistent database (`tests/backend` and `tests/ml` are empty;
+  `ml/src` contains only `__init__.py`)
+
+### Known limitations
+
+* The Dependencies panel scales raw coupling counts as percentages;
+  treat those bars as relative ordering, not true percentages.
+* The analysis cache key is `owner/repo` and does not vary by branch.
+* There is no per-file or per-commit detail endpoint yet.
 
 ---
 

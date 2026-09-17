@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,6 +36,8 @@ pub struct Commit {
     pub sha: String,
     pub message: String,
     pub author: Option<CommitAuthor>,
+    #[serde(skip)]
+    pub timestamp: Option<i64>,
     pub date: Option<String>,
     pub url: String,
     pub stats: CommitStats,
@@ -48,7 +51,7 @@ pub struct CommitAuthor {
     pub date: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct CommitStats {
     pub additions: u64,
     pub deletions: u64,
@@ -98,20 +101,29 @@ struct CommitDetails {
 
 impl From<GithubCommit> for Commit {
     fn from(commit: GithubCommit) -> Self {
+        let date = commit
+            .commit
+            .author
+            .as_ref()
+            .and_then(|author| author.date.clone());
+
         Self {
             sha: commit.sha,
             message: commit.commit.message,
-            date: commit
-                .commit
-                .author
-                .as_ref()
-                .and_then(|author| author.date.clone()),
+            date: date.clone(),
+            timestamp: parse_iso_timestamp(&date),
             author: commit.commit.author,
             url: commit.html_url,
             stats: commit.stats.unwrap_or_default(),
             files: commit.files.unwrap_or_default(),
         }
     }
+}
+
+fn parse_iso_timestamp(date: &Option<String>) -> Option<i64> {
+    date.as_deref()
+        .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+        .map(|dt| dt.timestamp())
 }
 
 impl Commit {
@@ -127,7 +139,9 @@ impl Commit {
     ) -> Result<Vec<Self>> {
         let shas = list_commit_shas(client, owner, repo, &config).await?;
 
-        let commits = fetch_commit_details(client, owner, repo, &shas, &config).await;
+        let mut commits = fetch_commit_details(client, owner, repo, &shas, &config).await;
+
+        commits.sort_by_key(|commit| commit.timestamp.unwrap_or(0));
 
         Ok(commits)
     }
@@ -202,7 +216,10 @@ async fn fetch_commit_details(
         let sha = sha.clone();
 
         tasks.spawn(async move {
-            let _permit = semaphore.acquire().await?;
+            let _permit = semaphore
+                .acquire()
+                .await
+                .map_err(|error| anyhow::Error::msg(format!("failed to acquire semaphore: {error}")))?;
 
             let endpoint = format!("/repos/{owner}/{repo}/commits/{sha}");
 
@@ -210,6 +227,7 @@ async fn fetch_commit_details(
                 .get::<GithubCommit>(&endpoint)
                 .await
                 .map(Commit::from)
+                .map_err(anyhow::Error::from)
         });
     }
 
@@ -230,14 +248,4 @@ async fn fetch_commit_details(
     }
 
     shas.iter().filter_map(|sha| by_sha.remove(sha)).collect()
-}
-
-impl Default for CommitStats {
-    fn default() -> Self {
-        Self {
-            additions: 0,
-            deletions: 0,
-            total: 0,
-        }
-    }
 }

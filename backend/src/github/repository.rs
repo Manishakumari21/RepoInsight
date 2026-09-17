@@ -22,6 +22,6 @@ impl Repository {
     pub async fn fetch(client: &GithubClient, owner: &str, repo: &str) -> Result<Self> {
         let endpoint = format!("/repos/{owner}/{repo}");
 
-        client.get(&endpoint).await
+        client.get(&endpoint).await.map_err(anyhow::Error::from)
     }
 }

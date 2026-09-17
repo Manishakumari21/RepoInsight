@@ -1,112 +1,85 @@
+use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DependencyEdge {
     pub source: String,
-
     pub target: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DependencyMetrics {
     pub total_dependencies: usize,
-
     pub connected_files: usize,
-
     pub highly_connected_files: usize,
-
+    #[allow(dead_code)]
     pub outgoing_dependencies: HashMap<String, usize>,
-
+    #[allow(dead_code)]
     pub incoming_dependencies: HashMap<String, usize>,
-
     pub coupling: HashMap<String, usize>,
 }
 
 pub fn analyze(edges: &[DependencyEdge]) -> DependencyMetrics {
-    let unique_edges = edges.iter().collect::<HashSet<_>>();
-
     let mut outgoing: HashMap<String, HashSet<String>> = HashMap::new();
     let mut incoming: HashMap<String, HashSet<String>> = HashMap::new();
 
-    for edge in unique_edges {
-        if edge.source == edge.target {
-            continue;
-        }
-
+    for edge in edges
+        .iter()
+        .unique()
+        .filter(|edge| edge.source != edge.target)
+    {
         outgoing
             .entry(edge.source.clone())
             .or_default()
             .insert(edge.target.clone());
-
         incoming
             .entry(edge.target.clone())
             .or_default()
             .insert(edge.source.clone());
     }
 
-    let mut coupling = HashMap::new();
+    let files: HashSet<&String> = outgoing.keys().chain(incoming.keys()).collect();
 
-    let files = outgoing
-        .keys()
-        .chain(incoming.keys())
-        .collect::<HashSet<_>>();
-
-    for file in &files {
-        let outgoing_count = outgoing.get(*file).map_or(0, HashSet::len);
-
-        let incoming_count = incoming.get(*file).map_or(0, HashSet::len);
-
-        coupling.insert((*file).clone(), outgoing_count + incoming_count);
-    }
-
-    let highly_connected_files = calculate_highly_connected_files(coupling.values().copied());
+    let coupling: HashMap<String, usize> = files
+        .iter()
+        .map(|file| {
+            let count = outgoing.get(*file).map_or(0, HashSet::len)
+                + incoming.get(*file).map_or(0, HashSet::len);
+            ((*file).clone(), count)
+        })
+        .collect();
 
     DependencyMetrics {
         total_dependencies: outgoing.values().map(HashSet::len).sum(),
-
         connected_files: files.len(),
-
-        highly_connected_files,
-
+        highly_connected_files: calculate_highly_connected_files(coupling.values().copied()),
         outgoing_dependencies: outgoing
             .into_iter()
-            .map(|(file, dependencies)| (file, dependencies.len()))
+            .map(|(key, value)| (key, value.len()))
             .collect(),
-
         incoming_dependencies: incoming
             .into_iter()
-            .map(|(file, dependents)| (file, dependents.len()))
+            .map(|(key, value)| (key, value.len()))
             .collect(),
-
         coupling,
     }
 }
 
 fn calculate_highly_connected_files(values: impl Iterator<Item = usize>) -> usize {
-    let values = values.collect::<Vec<_>>();
-
+    let values: Vec<f64> = values.map(|value| value as f64).collect();
     if values.is_empty() {
         return 0;
     }
 
-    let mean = values.iter().map(|&value| value as f64).sum::<f64>() / values.len() as f64;
-
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
     let variance = values
         .iter()
-        .map(|&value| {
-            let difference = value as f64 - mean;
-            difference * difference
-        })
+        .map(|value| (value - mean).powi(2))
         .sum::<f64>()
         / values.len() as f64;
+    let threshold = mean + variance.sqrt();
 
-    let standard_deviation = variance.sqrt();
-    let threshold = mean + standard_deviation;
-
-    values
-        .iter()
-        .filter(|&&value| value as f64 > threshold)
-        .count()
+    values.iter().filter(|value| **value > threshold).count()
 }
 
 #[cfg(test)]

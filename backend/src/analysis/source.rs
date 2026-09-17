@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use futures::stream::{self, StreamExt, TryStreamExt};
+use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 
 use crate::github::{client::GithubClient, files::RepositoryFile};
@@ -29,14 +29,28 @@ pub async fn collect_source_files(
     let candidates = files
         .iter()
         .filter(|file| is_candidate(file))
+        .cloned()
         .collect::<Vec<_>>();
 
-    stream::iter(candidates)
-        .map(|file| async move { fetch_source_file(client, file).await })
+    let files: Vec<SourceFile> = stream::iter(candidates)
+        .map(|file| async move {
+            match fetch_source_file(client, &file).await {
+                Ok(file) => file,
+                Err(error) => {
+                    eprintln!(
+                        "Warning: skipping source file {}: {error:#}",
+                        file.path
+                    );
+                    None
+                }
+            }
+        })
         .buffer_unordered(MAX_CONCURRENT_REQUESTS)
-        .try_filter_map(|file| async move { Ok(file) })
-        .try_collect()
-        .await
+        .filter_map(|file| async move { file })
+        .collect()
+        .await;
+
+    Ok(files)
 }
 
 async fn fetch_source_file(
@@ -74,6 +88,13 @@ fn is_candidate(file: &RepositoryFile) -> bool {
 
 fn is_likely_non_source(path: &str) -> bool {
     let path = path.to_ascii_lowercase();
+
+    if path
+        .split('/')
+        .any(|part| matches!(part, ".git" | "target" | "node_modules" | "dist" | "build"))
+    {
+        return true;
+    }
 
     [
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".pdf", ".zip", ".gz", ".tar",

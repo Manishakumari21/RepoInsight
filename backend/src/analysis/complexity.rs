@@ -74,22 +74,6 @@ fn visit<A: SyntaxAnalyzer>(node: Node<'_>, analyzer: &A, depth: usize, metrics:
 mod tests {
     use super::*;
 
-    struct TestAnalyzer;
-
-    impl SyntaxAnalyzer for TestAnalyzer {
-        fn is_function(&self, node: Node<'_>) -> bool {
-            node.kind() == "test_function"
-        }
-
-        fn is_decision(&self, node: Node<'_>) -> bool {
-            node.kind() == "test_decision"
-        }
-
-        fn is_nesting(&self, node: Node<'_>) -> bool {
-            node.kind() == "test_block"
-        }
-    }
-
     #[test]
     fn empty_tree_has_base_complexity() {
         assert_eq!(
