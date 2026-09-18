@@ -7,6 +7,9 @@ import { Explorer } from './Explorer'
 import { Dependencies } from './Dependencies'
 import { History } from './History'
 import { Cochange } from './Cochange'
+import { Sequences } from './Sequences'
+import { PropagationHistory } from './PropagationHistory'
+import { HistoricalExamples } from './HistoricalExamples'
 import { Settings } from './Settings'
 
 export function Dashboard({
@@ -43,6 +46,9 @@ export function Dashboard({
         <History history={analysis.history} totalLines={source.total_lines} />
       </div>
       <Cochange pairs={analysis.cochange.pairs} total={analysis.cochange.total_pairs} />
+      <Sequences sequences={analysis.sequences.sequences} windowSeconds={analysis.sequences.window_seconds} />
+      <PropagationHistory timeline={analysis.timeline} followups={analysis.followups} rework={analysis.rework} />
+      <HistoricalExamples examples={analysis.examples.examples} total={analysis.examples.total} />
       <Settings repository={analysis.repository} />
     </div>
   )

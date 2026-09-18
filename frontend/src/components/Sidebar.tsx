@@ -36,6 +36,25 @@ const ICONS: Record<SectionId, ReactElement> = {
       <path d="M12 7v5l3 2" />
     </svg>
   ),
+  sequences: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 12h6l2-5 3 10 2-5h3" />
+    </svg>
+  ),
+  propagation: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="18" cy="6" r="2.5" />
+      <circle cx="12" cy="18" r="2.5" />
+      <path d="M8 7.5l3 8M16 7.5l-3 8M8.5 6h7" />
+    </svg>
+  ),
+  examples: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 4h14v12H5z" />
+      <path d="M9 20h6M12 16v4" />
+    </svg>
+  ),
   settings: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M4 6h9M19 6h1M4 12h1M9 12h11M4 18h7M15 18h5" />

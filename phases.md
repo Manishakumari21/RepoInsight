@@ -199,7 +199,7 @@ Tree-sitter should feed a common representation.
 
 # Phase 4 — Temporal Change Propagation Engine
 
-**Status: ⏳ Planned**
+**Status: ✅ 4B Complete (sequences, follow-ups, rework, examples done)**
 
 ### Goal
 
@@ -217,18 +217,23 @@ to:
 change → subsequent changes → downstream effect → rework
 ```
 
+Implemented in `backend/src/analysis/history.rs` (pairs, propagation graph)
+and `backend/src/analysis/propagation_history.rs` (timeline, sequences,
+follow-ups, rework, examples). Temporal windows are configurable via
+`PropagationConfig` (sequence/follow-up default 7 days, rework default 14 days).
+
 ---
 
 ## 4.1 Change Timeline
 
 For every relevant file:
 
-* [ ] Construct chronological change history
-* [ ] Record commit timestamps
-* [ ] Record commit ordering
-* [ ] Record files changed together
-* [ ] Record additions/deletions
-* [ ] Track authors/contributors
+* [x] Construct chronological change history
+* [x] Record commit timestamps
+* [x] Record commit ordering
+* [x] Record files changed together
+* [x] Record additions/deletions
+* [x] Track authors/contributors
 
 Example:
 
@@ -254,11 +259,11 @@ A → B → C → rework
 
 ### Tasks
 
-* [ ] Define change-window strategy
-* [ ] Generate ordered change sequences
-* [ ] Identify downstream changes
-* [ ] Detect repeated propagation patterns
-* [ ] Store historical examples
+* [x] Define change-window strategy (consecutive commits within a configurable window, default 7 days)
+* [x] Generate ordered change sequences (length-2 pairs and length-3 triples, deterministic)
+* [x] Identify downstream changes (temporal pairs + sequence chains)
+* [x] Detect repeated propagation patterns (occurrence counting with average delay)
+* [x] Store historical examples (top temporal pairs and sequences with signals and SHAs)
 
 ---
 
@@ -296,12 +301,17 @@ Rework
 
 ### Tasks
 
-* [ ] Define operational rework criteria
-* [ ] Identify follow-up changes
-* [ ] Identify likely corrective changes
-* [ ] Handle revert patterns
-* [ ] Validate detection rules
-* [ ] Measure false positives
+* [x] Define operational rework criteria (repeated-touch, fix-message, revert, related-fix rules in `detect_rework`)
+* [x] Identify follow-up changes (same-file observed; co-change/dependency/fix-message derived)
+* [x] Identify likely corrective changes (word-based fix-message heuristic, never substring matching)
+* [x] Handle revert patterns (`Revert "..."` detection, takes precedence over repeat rules)
+* [x] Validate detection rules (backend unit tests: ordering, windows, follow-ups, rework, reverts, duplicates, empty history)
+* [x] Measure false positives (Phase 4.4: `tests/backend/evaluation/` — 6 reviewed adjacent pairs from this repo's own history scored against unmodified `detect_rework`; TP=0, FP=2, TN=4, FN=0; precision 0.0, recall n/a, FPR 0.333; served at `GET /api/evaluation/rework` and shown in Settings)
+
+Follow-ups are reported as *candidate* rework with the triggering rule and
+evidence string. Historical evidence (`observed`/`derived`) is never mixed
+with future prediction — no ML model exists yet, so no risk/confidence values
+are produced.
 
 The definition of the prediction target must be experimentally justified rather than arbitrarily chosen.
 

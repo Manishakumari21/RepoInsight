@@ -347,6 +347,11 @@ Returns the combined `RepositoryAnalysis` payload:
 * co-change pairs (top 50 by count)
 * temporal pairs (top 50 by occurrences, 7-day window with average delay)
 * propagation graph (top 100 edges combining temporal, co-change, and dependency signals)
+* change timeline (chronological entries with SHA, order, author, files, additions/deletions; latest 300)
+* change sequences (top 50 pairs/triples from consecutive commits, configurable 7-day window)
+* follow-ups (top 100: same-file observed; co-change/dependency/fix-message derived)
+* rework signals (top 100 candidate events with rule + evidence: repeated-touch, fix-message, revert, related-fix; 14-day window)
+* historical examples (top 20 temporal/sequence cases with signals and example SHAs)
 * hotspot scores with reasons
 * aggregate difficulty score
 * Served from in-memory cache when fresh (`no-store` on cache hit path)
@@ -381,6 +386,15 @@ The current analysis layer includes:
   occurrences + average delay)
 * Propagation graph (temporal + co-change + dependency edges with
   per-type flags and combined strength)
+* Change timeline (chronological entries: SHA, order, timestamp, author,
+  files, additions/deletions)
+* Change sequences (ordered pairs/triples from consecutive commits,
+  configurable window, occurrence + delay counting)
+* Follow-up detection (deterministic rules; observed vs derived signals)
+* Rework detection (explicit rules — repeated-touch, fix-message, revert,
+  related-fix — each with evidence; candidates, never definite)
+* Historical examples (source/target, sequence, occurrences, delay,
+  signals, example SHAs)
 
 ---
 
@@ -408,7 +422,7 @@ Tree-sitter is **not the core identity of RepoInsight**. It is a supporting comp
 
 This is the core research direction of RepoInsight.
 
-Phase 4 is implemented: commits are sorted chronologically, files that repeatedly change together are detected (co-change), source → target changes within a 7-day window are tracked with occurrences and average delay (temporal analysis), and all three signals — dependency, temporal, co-change — are combined into a propagation graph exposed via the analysis response (`temporal.pairs`, `propagation.edges`). Generated paths (`.git`, `target`, `node_modules`, `dist`, `build`) are filtered out of the historical analysis.
+Phase 4 (including 4B) is implemented: commits are sorted chronologically and exposed as a file-level change timeline (`timeline.entries` with SHA, order, timestamp, author, files, additions/deletions); ordered change sequences (pairs and triples from consecutive commits within a configurable 7-day window) are counted with occurrences and average delay (`sequences`); files that repeatedly change together are detected (co-change); source → target changes within a 7-day window are tracked with occurrences and average delay (temporal analysis); all three signals — dependency, temporal, co-change — are combined into a propagation graph (`propagation.edges`); deterministic follow-up rules link later commits to earlier ones (`followups`, observed vs derived); explicit rework heuristics flag candidate events with the triggering rule and evidence (`rework`, 14-day window, never presented as definite); and representative cases are exposed as historical examples (`examples` with signals and example SHAs). Generated paths (`.git`, `target`, `node_modules`, `dist`, `build`) are filtered out of the historical analysis. No LLM is used; no risk/confidence predictions are produced.
 
 Instead of treating history as:
 
@@ -591,14 +605,17 @@ Model explanation techniques such as feature importance or SHAP may be added aft
 
 ## Phase 4 — Change Propagation Engine
 
-* [ ] File-level change sequences
+* [x] File-level change sequences (ordered pairs/triples, configurable 7-day window, top 50)
 * [x] Temporal change representation (7-day window, occurrences + average delay, top 50 pairs)
 * [x] Co-change relationships (canonical pair counting, top 50 pairs)
 * [x] Change propagation detection (temporal + co-change + dependency graph, top 100 edges)
-* [ ] Follow-up/rework detection
-* [ ] Historical examples
+* [x] Change timeline (chronological entries: SHA, order, timestamp, author, files, additions/deletions; latest 300)
+* [x] Follow-up detection (same-file observed; co-change/dependency/fix-message derived; top 100)
+* [x] Rework detection (repeated-touch, fix-message, revert, related-fix rules with evidence; top 100 candidates)
+* [x] Historical examples (top 20 temporal/sequence cases with signals and example SHAs)
+* [x] False-positive measurement (6 reviewed pairs from this repo's own history: TP=0, FP=2, TN=4, FN=0; precision 0.0, recall n/a, FPR 0.333; see `tests/backend/evaluation/README.md`)
 
-Note: commits are sorted chronologically and the propagation graph is exposed via `temporal.pairs` and `propagation.edges` in the analysis response (mirrored in frontend `types.ts`; no dashboard UI for it yet). Sequences, follow-up/rework detection, and historical examples are not implemented yet.
+Note: commits are sorted chronologically and the propagation history is exposed via `timeline.entries`, `sequences.sequences`, `followups.followups`, `rework.events`, and `examples.examples` in the analysis response (mirrored in frontend `types.ts` and shown in the dashboard's Sequences, Propagation History, and Historical Examples sections). Follow-ups are labeled observed/derived and rework is always presented as *candidate* with its rule — never as a prediction. False-positive measurement is still open.
 
 ## Phase 5 — Dataset Creation
 
@@ -631,7 +648,7 @@ Note: commits are sorted chronologically and the propagation graph is exposed vi
 * [x] Repository overview
 * [ ] Change-risk view
 * [ ] Predicted impact graph
-* [x] Historical evidence (partial: history summary + co-change pairs)
+* [x] Historical evidence (history summary, co-change pairs, change sequences, propagation history, historical examples)
 * [x] File exploration (hotspot/explorer tables)
 * [ ] Model explanation
 
@@ -692,9 +709,13 @@ Components should be added when they have a real responsibility rather than crea
 
 Current focus:
 
-> **Temporal Change Propagation → Dataset Creation**
+> **Phase 5: Dataset Creation**
 
-The GitHub collection layer, analysis foundations, and temporal change propagation engine are in place. The next major step is turning the temporal/propagation representation into ML-ready training data (**Phase 5: dataset generation**).
+The GitHub collection layer, analysis foundations, and change propagation
+intelligence (timeline, sequences, follow-ups, rework signals, historical
+examples) are in place. The next major step is turning the
+temporal/propagation representation into ML-ready training data
+(**Phase 5: dataset generation**).
 
 ## Implementation status
 
@@ -707,8 +728,13 @@ The GitHub collection layer, analysis foundations, and temporal change propagati
 * Per-file complexity and dependency-edge extraction
 * Chronological commit ordering, co-change pair counting, temporal
   analysis (7-day window), and propagation graph
+* Change timeline, ordered change sequences (pairs/triples), deterministic
+  follow-up detection (observed/derived), rule-based candidate rework
+  detection with evidence, and historical examples
 * Heuristic hotspot and difficulty scoring
-* Dashboard overview, hotspot/explorer tables, dependency/history summaries
+* Dashboard overview, hotspot/explorer tables, dependency/history summaries,
+  plus Sequences, Propagation History, and Historical Examples sections
+  (all labeled as observed history, no ML predictions)
 * In-memory analysis cache and GitHub rate-limit handling (plus retries
   for transient transport failures)
 
@@ -718,17 +744,17 @@ The GitHub collection layer, analysis foundations, and temporal change propagati
   aggregates are exposed in the API response
 * Dependency resolution is heuristic; unresolved references are
   returned with a `$` prefix (and can appear as propagation targets)
-* History exposes totals, co-change pairs, temporal pairs, and the
-  propagation graph (no per-commit timeline, sequences, clusters,
-  or rework events yet)
+* History exposes totals, co-change pairs, temporal pairs, the
+  propagation graph, the change timeline, sequences, follow-ups, rework
+  events, and historical examples (no per-commit detail endpoint, clusters,
+  or architecture graph yet)
 * Co-change pairs are canonicalized alphabetically while temporal and
   dependency edges are directional, so the same file pair can appear
   as separate propagation edges
 
 ### Planned / not implemented
 
-* Change sequences, follow-up/rework detection, historical examples
-* Architecture graph, temporal slider, evolution replay, propagation UI
+* Architecture graph, temporal slider, evolution replay
 * Impact Simulator, what-if analysis, evidence panel, explainability
 * ML dataset, model training, chronological evaluation
 * AI assistant, repository-context export, reports

@@ -227,7 +227,7 @@ pub fn build_propagation(
     PropagationAnalysis { edges }
 }
 
-fn relevant_files(
+pub(crate) fn relevant_files(
     files: &[crate::github::commits::ChangedFile],
 ) -> Vec<crate::github::commits::ChangedFile> {
     files
@@ -237,7 +237,7 @@ fn relevant_files(
         .collect()
 }
 
-fn is_ignored_path(path: &str) -> bool {
+pub(crate) fn is_ignored_path(path: &str) -> bool {
     path.to_ascii_lowercase()
         .split('/')
         .any(|part| matches!(part, ".git" | "target" | "node_modules" | "dist" | "build"))

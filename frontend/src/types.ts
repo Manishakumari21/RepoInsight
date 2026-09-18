@@ -7,6 +7,11 @@ export interface RepositoryAnalysis {
   cochange: CochangeAnalysis
   temporal: TemporalAnalysis
   propagation: PropagationAnalysis
+  timeline: ChangeTimeline
+  sequences: ChangeSequences
+  followups: FollowUpAnalysis
+  rework: ReworkAnalysis
+  examples: HistoricalExamples
   hotspots: Hotspot[]
   difficulty: DifficultyScore
 }
@@ -94,6 +99,110 @@ export interface Hotspot {
   reasons: string[]
 }
 
+export interface TimelineEntry {
+  sha: string
+  order: number
+  timestamp: number | null
+  date: string | null
+  author: string | null
+  message: string
+  files: string[]
+  additions: number
+  deletions: number
+}
+
+export interface ChangeTimeline {
+  entries: TimelineEntry[]
+  total_commits: number
+  truncated: boolean
+}
+
+export interface ChangeSequence {
+  files: string[]
+  occurrences: number
+  avg_delay_seconds: number
+  kind: string
+  evidence_type: string
+}
+
+export interface ChangeSequences {
+  sequences: ChangeSequence[]
+  window_seconds: number
+}
+
+export interface FollowUp {
+  source_sha: string
+  source_files: string[]
+  followup_sha: string
+  followup_files: string[]
+  delay_seconds: number
+  reason: string
+  signals: string[]
+  evidence_type: string
+}
+
+export interface FollowUpAnalysis {
+  followups: FollowUp[]
+  total: number
+  window_seconds: number
+}
+
+export interface ReworkEvent {
+  file: string
+  initial_sha: string
+  rework_sha: string
+  delay_seconds: number
+  rule: string
+  evidence: string
+}
+
+export interface ReworkAnalysis {
+  events: ReworkEvent[]
+  total: number
+  window_seconds: number
+}
+
+export interface HistoricalExample {
+  id: string
+  source_file: string
+  target_file: string
+  sequence: string[]
+  occurrences: number
+  avg_delay_seconds: number
+  signals: string[]
+  evidence_type: string
+  example_shas: string[]
+}
+
+export interface HistoricalExamples {
+  examples: HistoricalExample[]
+  total: number
+}
+
+export interface ReworkEvaluationMetrics {
+  tp: number
+  fp: number
+  tn: number
+  fn: number
+  precision: number | null
+  recall: number | null
+  false_positive_rate: number | null
+}
+
+export interface ReworkEvaluatedPair {
+  previous_sha: string
+  current_sha: string
+  actual_rework: boolean
+  predicted_rework: boolean
+  rule: string | null
+}
+
+export interface ReworkEvaluationReport {
+  dataset: string
+  pairs: ReworkEvaluatedPair[]
+  metrics: ReworkEvaluationMetrics
+}
+
 export interface DifficultyScore {
   score: number
   level: string
@@ -117,4 +226,15 @@ export function formatDate(iso: string | null): string {
   return Number.isNaN(date.getTime())
     ? iso
     : date.toLocaleDateString('en-US')
+}
+
+export function formatDelay(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`
+  return `${(seconds / 86400).toFixed(1)}d`
+}
+
+export function shortSha(sha: string): string {
+  return sha.slice(0, 7)
 }

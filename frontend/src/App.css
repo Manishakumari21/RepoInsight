@@ -5,7 +5,6 @@
   color: var(--text);
 }
 
-/* ---------- Sidebar ---------- */
 
 .sidebar {
   width: 236px;
@@ -133,7 +132,6 @@
   color: var(--accent);
 }
 
-/* ---------- Main layout ---------- */
 
 .main {
   flex: 1;
@@ -205,7 +203,6 @@
   background: currentColor;
 }
 
-/* ---------- Search ---------- */
 
 .search {
   display: flex;
@@ -260,7 +257,6 @@
   cursor: default;
 }
 
-/* ---------- Content ---------- */
 
 .content {
   max-width: 1200px;
@@ -274,7 +270,6 @@
   gap: 22px;
 }
 
-/* ---------- Overview / hero ---------- */
 
 .hero {
   padding: 4px 2px 2px;
@@ -342,7 +337,6 @@
   margin-top: 2px;
 }
 
-/* ---------- Panels ---------- */
 
 .panel {
   background: var(--panel-bg);
@@ -380,7 +374,6 @@
   gap: 20px;
 }
 
-/* ---------- Risk gauge ---------- */
 
 .gauge-wrap {
   display: flex;
@@ -438,7 +431,6 @@
   color: var(--muted);
 }
 
-/* ---------- Metrics & bars ---------- */
 
 .metrics {
   display: grid;
@@ -529,7 +521,6 @@
   margin: 6px 0 8px;
 }
 
-/* ---------- Hotspots ---------- */
 
 .hotspot-row {
   display: grid;
@@ -643,7 +634,6 @@
   background: rgba(52, 211, 153, 0.12);
 }
 
-/* ---------- Table ---------- */
 
 .table-scroll {
   overflow-x: auto;
@@ -710,7 +700,6 @@
   color: var(--muted);
 }
 
-/* ---------- Coupled files ---------- */
 
 .coupled-row {
   display: flex;
@@ -747,7 +736,6 @@
   flex-shrink: 0;
 }
 
-/* ---------- Co-change ---------- */
 
 .cochange-row {
   display: flex;
@@ -787,7 +775,6 @@
   flex-shrink: 0;
 }
 
-/* ---------- History ---------- */
 
 .churn-track {
   display: flex;
@@ -845,7 +832,6 @@
   line-height: 1.5;
 }
 
-/* ---------- Settings ---------- */
 
 .settings-list {
   display: flex;
@@ -878,7 +864,6 @@
   text-align: right;
 }
 
-/* ---------- Loading / error / empty ---------- */
 
 .loading {
   display: flex;
@@ -1002,7 +987,6 @@
   opacity: 1;
 }
 
-/* ---------- Chips ---------- */
 
 .chip {
   display: inline-flex;
@@ -1036,7 +1020,6 @@
   background: rgba(52, 211, 153, 0.08);
 }
 
-/* ---------- Hero & insights ---------- */
 
 .hero-chips {
   display: flex;
@@ -1085,7 +1068,6 @@
   letter-spacing: 0.06em;
 }
 
-/* ---------- Donut ---------- */
 
 .donut-frame {
   position: relative;
@@ -1134,7 +1116,6 @@
   margin-top: 8px;
 }
 
-/* ---------- Risk drivers ---------- */
 
 .risk-grid {
   display: grid;
@@ -1165,7 +1146,6 @@
   line-height: 1.5;
 }
 
-/* ---------- Complexity split ---------- */
 
 .complex-grid {
   display: grid;
@@ -1185,7 +1165,6 @@
   min-width: 0;
 }
 
-/* ---------- Hotspot summary ---------- */
 
 .hotspot-summary {
   display: grid;
@@ -1281,7 +1260,6 @@
   background: rgba(52, 211, 153, 0.05);
 }
 
-/* ---------- Explorer ---------- */
 
 .explorer-status {
   display: flex;
@@ -1309,7 +1287,6 @@
   background: var(--panel-bg-hover);
 }
 
-/* ---------- Dependencies / history extras ---------- */
 
 .dep-top {
   display: grid;
@@ -1333,7 +1310,6 @@
   margin-top: 12px;
 }
 
-/* ---------- Lead callout ---------- */
 
 .lead-callout {
   display: flex;
@@ -1353,7 +1329,6 @@
   font-size: 12px;
 }
 
-/* ---------- Landing (continued) ---------- */
 
 .landing {
   display: flex;
@@ -1501,7 +1476,6 @@
   border-radius: 6px;
 }
 
-/* ---------- Responsive ---------- */
 
 @media (max-width: 1024px) {
   .grid-2 {
@@ -1634,4 +1608,104 @@
     margin-left: 0;
     width: 100%;
   }
+}
+
+
+.seq-chain {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.seq-delay {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sha {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.timeline-row:last-child {
+  border-bottom: none;
+}
+
+.timeline-message {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.timeline-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.evidence {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.example-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.example-row:last-child {
+  border-bottom: none;
+}
+
+.example-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.example-sequence {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.example-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
 }

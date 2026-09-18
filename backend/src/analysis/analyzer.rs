@@ -6,11 +6,12 @@ use crate::{
         complexity::{self, ComplexityResult},
         dependencies,
         history,
-       models::{
-    build_cochange, build_dependency_analysis, ComplexityAnalysis, RepositoryAnalysis,
-    RepositoryInfo,
-},
+        models::{
+            build_cochange, build_dependency_analysis, ComplexityAnalysis, RepositoryAnalysis,
+            RepositoryInfo,
+        },
         parsers::tree_sitter::{self, ParsedSource, TreeSitterAnalyzer},
+        propagation_history::{self, PropagationConfig},
         scoring::{self, FileAnalysis},
         source::{self, SourceFile},
     },
@@ -63,6 +64,30 @@ pub async fn analyze_repository(
     &file_edges,
 );
 
+    let propagation_config = PropagationConfig::default();
+    let timeline = propagation_history::build_timeline(&commits);
+    let sequences = propagation_history::detect_sequences(&commits, &propagation_config);
+    let followups = propagation_history::detect_followups(
+        &commits,
+        &file_edges,
+        &history_metrics.cochange_pairs,
+        &propagation_config,
+    );
+    let rework = propagation_history::detect_rework(
+        &commits,
+        &file_edges,
+        &history_metrics.cochange_pairs,
+        &propagation_config,
+    );
+    let examples = propagation_history::build_examples(
+        &commits,
+        &temporal,
+        &sequences,
+        &history_metrics.cochange_pairs,
+        &file_edges,
+        &propagation_config,
+    );
+
     let complexity_analysis = build_complexity_analysis(&file_complexity);
 
     let scoring_files = file_complexity
@@ -92,6 +117,11 @@ Ok(RepositoryAnalysis {
     cochange: cochange_analysis,
 temporal,
 propagation,
+timeline,
+sequences,
+followups,
+rework,
+examples,
 hotspots,
 difficulty,
     })

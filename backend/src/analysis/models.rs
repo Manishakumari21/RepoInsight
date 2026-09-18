@@ -11,6 +11,11 @@ pub struct RepositoryAnalysis {
     pub cochange: CochangeAnalysis,
     pub temporal: TemporalAnalysis,
     pub propagation: PropagationAnalysis,
+    pub timeline: ChangeTimeline,
+    pub sequences: ChangeSequences,
+    pub followups: FollowUpAnalysis,
+    pub rework: ReworkAnalysis,
+    pub examples: HistoricalExamples,
     pub hotspots: Vec<Hotspot>,
     pub difficulty: DifficultyScore,
 }
@@ -102,6 +107,96 @@ pub struct PropagationEdge {
     pub temporal: bool,
     pub cochange: bool,
     pub strength: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChangeTimeline {
+    pub entries: Vec<TimelineEntry>,
+    pub total_commits: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TimelineEntry {
+    pub sha: String,
+    pub order: usize,
+    pub timestamp: Option<i64>,
+    pub date: Option<String>,
+    pub author: Option<String>,
+    pub message: String,
+    pub files: Vec<String>,
+    pub additions: u64,
+    pub deletions: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChangeSequences {
+    pub sequences: Vec<ChangeSequence>,
+    pub window_seconds: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChangeSequence {
+    pub files: Vec<String>,
+    pub occurrences: usize,
+    pub avg_delay_seconds: i64,
+    pub kind: String,
+    pub evidence_type: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FollowUpAnalysis {
+    pub followups: Vec<FollowUp>,
+    pub total: usize,
+    pub window_seconds: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FollowUp {
+    pub source_sha: String,
+    pub source_files: Vec<String>,
+    pub followup_sha: String,
+    pub followup_files: Vec<String>,
+    pub delay_seconds: i64,
+    pub reason: String,
+    pub signals: Vec<String>,
+    pub evidence_type: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReworkAnalysis {
+    pub events: Vec<ReworkEvent>,
+    pub total: usize,
+    pub window_seconds: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReworkEvent {
+    pub file: String,
+    pub initial_sha: String,
+    pub rework_sha: String,
+    pub delay_seconds: i64,
+    pub rule: String,
+    pub evidence: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HistoricalExamples {
+    pub examples: Vec<HistoricalExample>,
+    pub total: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HistoricalExample {
+    pub id: String,
+    pub source_file: String,
+    pub target_file: String,
+    pub sequence: Vec<String>,
+    pub occurrences: usize,
+    pub avg_delay_seconds: i64,
+    pub signals: Vec<String>,
+    pub evidence_type: String,
+    pub example_shas: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
