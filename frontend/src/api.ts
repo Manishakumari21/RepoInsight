@@ -1,4 +1,4 @@
-import type { RepositoryAnalysis } from './types'
+import type { RepositoryAnalysis, ReworkEvaluationReport } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -36,7 +36,6 @@ async function readErrorPayload(response: Response): Promise<{
       message = body.error.trim()
     }
   } catch {
-    // response body is not JSON; fall back to a generic message
   }
 
   const retryAfterHeader = response.headers.get('retry-after')
@@ -87,4 +86,26 @@ export async function fetchRepositoryAnalysis(
   }
 
   throw new Error('Analysis request failed')
+}
+
+export async function fetchReworkEvaluation(): Promise<ReworkEvaluationReport> {
+  const url = `${VITE_API_BASE}/api/evaluation/rework`
+
+  let response: Response
+  try {
+    response = await fetch(url)
+  } catch (err) {
+    if (err instanceof Error) throw err
+    throw new Error('Network error while contacting the analysis service', { cause: err })
+  }
+
+  if (!response.ok) {
+    const { message } = await readErrorPayload(response)
+    throw new ApiError(
+      message ? message : `Evaluation request failed: HTTP ${response.status}`,
+      response.status,
+    )
+  }
+
+  return (await response.json()) as ReworkEvaluationReport
 }

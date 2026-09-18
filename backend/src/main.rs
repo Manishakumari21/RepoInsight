@@ -87,6 +87,7 @@ async fn main() -> Result<()> {
             "/api/repositories/{owner}/{repo}/analysis",
             get(get_repository_analysis),
         )
+        .route("/api/evaluation/rework", get(get_rework_evaluation))
         .layer(cors)
         .with_state(state);
 
@@ -169,4 +170,8 @@ async fn get_repository_analysis(
         }
         Err(error) => Err(api_error(error)),
     }
+}
+
+async fn get_rework_evaluation() -> Json<analysis::rework_evaluation::EvaluationReport> {
+    Json(analysis::rework_evaluation::run_evaluation())
 }

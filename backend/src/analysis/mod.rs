@@ -5,5 +5,6 @@ pub mod history;
 pub mod models;
 pub mod parsers;
 pub mod propagation_history;
+pub mod rework_evaluation;
 pub mod scoring;
 pub mod source;

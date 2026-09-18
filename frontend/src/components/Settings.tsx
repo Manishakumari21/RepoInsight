@@ -1,6 +1,7 @@
 import type { RepositoryInfo } from '../types'
 import { ANALYSIS_ENDPOINT } from '../config'
 import { Panel } from './Panel'
+import { ReworkEvaluation } from './ReworkEvaluation'
 
 export function Settings({ repository }: { repository: RepositoryInfo }) {
   return (
@@ -23,6 +24,8 @@ export function Settings({ repository }: { repository: RepositoryInfo }) {
           <span className="setting-value">GitHub repository metadata + git history</span>
         </div>
       </div>
+      <div className="panel-sub-title">Rework detector evaluation</div>
+      <ReworkEvaluation />
     </Panel>
   )
 }
