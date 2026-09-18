@@ -319,7 +319,7 @@ The definition of the prediction target must be experimentally justified rather 
 
 # Phase 5 — Feature Engineering & Dataset Creation
 
-**Status: ⏳ Planned**
+**Status: ✅ Complete**
 
 ### Goal
 
@@ -374,15 +374,20 @@ Potential features:
 
 ## 5.4 Dataset Construction
 
-* [ ] Define prediction unit
-* [ ] Define target label
-* [ ] Generate positive examples
-* [ ] Generate negative examples
-* [ ] Handle class imbalance
-* [ ] Remove invalid examples
-* [ ] Prevent duplicate examples
-* [ ] Prevent temporal leakage
-* [ ] Validate dataset quality
+* [x] Define prediction unit (`backend/src/dataset.rs`: ONE ROW = one file in one historical target commit)
+* [x] Define target label (`1` = file changed by the target commit; `0` = eligible file provably existing before it but unchanged)
+* [x] Generate positive examples (target commit's own relevant files with structural data)
+* [x] Generate negative examples (structural snapshot ∩ prefix-seen files, minus positives; files never seen before the target are excluded)
+* [x] Handle class imbalance (reported via `DatasetStats` positive/negative ratios; nothing discarded silently)
+* [x] Remove invalid examples (`validate_dataset` flags empty paths, non-binary labels, invalid timestamps, unknown targets)
+* [x] Prevent duplicate examples (duplicate commit/file rows flagged; splits are commit-granular)
+* [x] Prevent temporal leakage (strictly-before-`T` prefixes; untimestamped commits excluded)
+* [x] Validate dataset quality (`ValidationReport` with per-row reasons + stats)
+
+Implemented in `backend/src/dataset.rs` (`build_dataset`, `validate_dataset`,
+`dataset_stats`, `split_chronologically`, `export_jsonl` over JSONL via the
+existing `serde_json` dependency). Construction is independent of the HTTP
+layer.
 
 ---
 
@@ -400,6 +405,27 @@ Older commits                         Newer commits
 ```
 
 Do **not** use a random split as the primary evaluation strategy.
+
+Implemented as `split_chronologically` (default 70/15/15 by target count,
+configurable via `DatasetConfig`): targets ordered by (timestamp, SHA) go
+oldest-first to train, then validation, then test. Whole commits stay in one
+split, rows are never shuffled, histories with fewer than three targets stay
+entirely in train. No ML training happens here — that is Phase 6.
+
+## 5.6 Phase 5 Notes
+
+* Feature groups: structural (`analysis/features.rs`, current-tree snapshot),
+  historical (`analysis/historical_features.rs`, commit-aware strictly-before-`T`
+  prefixes; the older repository-level snapshot API is unchanged),
+  temporal (`analysis/temporal_features.rs`, prefix detectors reused, no
+  placeholder maps).
+* Temporal leakage prevention: per-target prefixes contain only commits with
+  timestamps strictly before `T`; target-own changes, future churn/co-change/
+  propagation/rework/contributors are unreachable by construction.
+* Known limitation: structural features and static dependency edges are
+  current-snapshot proxies, not historical reconstructions; rows require
+  structural coverage, so changes to unparsed files are excluded and reported
+  via validation rather than zero-filled.
 
 ---
 

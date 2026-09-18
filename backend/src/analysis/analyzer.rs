@@ -1,19 +1,19 @@
 use anyhow::{Context, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     analysis::{
         complexity::{self, ComplexityResult},
-        dependencies,
-        history,
+        dependencies, features, historical_features, history,
         models::{
-            build_cochange, build_dependency_analysis, ComplexityAnalysis, RepositoryAnalysis,
-            RepositoryInfo,
+            ComplexityAnalysis, RepositoryAnalysis, RepositoryInfo, build_cochange,
+            build_dependency_analysis,
         },
         parsers::tree_sitter::{self, ParsedSource, TreeSitterAnalyzer},
-        propagation_history::{self, PropagationConfig},
+        propagation_history::{self, DEFAULT_SEQUENCE_WINDOW_SECS, PropagationConfig},
         scoring::{self, FileAnalysis},
         source::{self, SourceFile},
+        temporal_features,
     },
     github::{
         client::GithubClient, commits::Commit, files::RepositoryFile, repository::Repository,
@@ -43,26 +43,41 @@ pub async fn analyze_repository(
 
     let source_analysis = source::build_source_analysis(&source_files);
 
-    let file_paths: HashSet<String> =
-        files.iter().map(|file| file.path.clone()).collect();
+    let file_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
 
     let (file_complexity, file_edges) = analyze_source_files(&source_files, &file_paths);
 
     let (history_analysis, history_metrics) = history::analyze(&commits);
 
+    let historical_features =
+        historical_features::build_historical_features(&commits, &history_metrics);
+
     let temporal = history::temporal_analysis(&commits);
 
     let dependency_metrics = dependencies::analyze(&file_edges);
+
+    let structural_features = file_complexity
+        .iter()
+        .filter_map(|file| {
+            source_files
+                .iter()
+                .find(|source| source.path == file.path)
+                .map(|source| {
+                    features::build_structural_features(
+                        source,
+                        &file.complexity,
+                        &dependency_metrics,
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
 
     let dependency_analysis = build_dependency_analysis(&dependency_metrics);
 
     let cochange_analysis = build_cochange(&history_metrics.cochange_pairs);
 
-    let propagation = history::build_propagation(
-    &temporal,
-    &history_metrics.cochange_pairs,
-    &file_edges,
-);
+    let propagation =
+        history::build_propagation(&temporal, &history_metrics.cochange_pairs, &file_edges);
 
     let propagation_config = PropagationConfig::default();
     let timeline = propagation_history::build_timeline(&commits);
@@ -78,6 +93,46 @@ pub async fn analyze_repository(
         &file_edges,
         &history_metrics.cochange_pairs,
         &propagation_config,
+    );
+    let mut followup_frequency = HashMap::new();
+    for followup in &followups.followups {
+        let files: HashSet<&String> = followup
+            .source_files
+            .iter()
+            .chain(&followup.followup_files)
+            .collect();
+        for file in files {
+            *followup_frequency.entry((*file).clone()).or_insert(0) += 1;
+        }
+    }
+
+    let mut rework_frequency = HashMap::new();
+    for event in &rework.events {
+        *rework_frequency.entry(event.file.clone()).or_insert(0) += 1;
+    }
+
+    let mut file_times: HashMap<String, Vec<i64>> = HashMap::new();
+    for commit in &commits {
+        let Some(timestamp) = commit.timestamp else {
+            continue;
+        };
+        for file in history::relevant_files(&commit.files) {
+            file_times.entry(file.filename).or_default().push(timestamp);
+        }
+    }
+    for stamps in file_times.values_mut() {
+        stamps.sort_unstable();
+    }
+    let ref_ts = file_times.values().flatten().copied().max().unwrap_or(0);
+
+    let temporal_features = temporal_features::build_temporal_features(
+        &temporal,
+        &propagation,
+        &followup_frequency,
+        &rework_frequency,
+        &file_times,
+        ref_ts,
+        DEFAULT_SEQUENCE_WINDOW_SECS,
     );
     let examples = propagation_history::build_examples(
         &commits,
@@ -98,32 +153,37 @@ pub async fn analyze_repository(
         })
         .collect::<Vec<_>>();
 
-    let hotspots = scoring::calculate_hotspots(&scoring_files, &history_metrics, &dependency_metrics);
+    let hotspots =
+        scoring::calculate_hotspots(&scoring_files, &history_metrics, &dependency_metrics);
 
-    let difficulty = scoring::calculate_difficulty(&scoring_files, &history_metrics, &dependency_metrics);
+    let difficulty =
+        scoring::calculate_difficulty(&scoring_files, &history_metrics, &dependency_metrics);
 
     let total_files = files.iter().filter(|file| file.kind == "blob").count();
 
-Ok(RepositoryAnalysis {
-    repository: RepositoryInfo {
-        name: repository.name,
-        default_branch: repository.default_branch,
-        total_files,
-    },
-    source: source_analysis,
-    complexity: complexity_analysis,
-    history: history_analysis,
-    dependencies: dependency_analysis,
-    cochange: cochange_analysis,
-temporal,
-propagation,
-timeline,
-sequences,
-followups,
-rework,
-examples,
-hotspots,
-difficulty,
+    Ok(RepositoryAnalysis {
+        repository: RepositoryInfo {
+            name: repository.name,
+            default_branch: repository.default_branch,
+            total_files,
+        },
+        source: source_analysis,
+        structural_features,
+        historical_features,
+        temporal_features,
+        complexity: complexity_analysis,
+        history: history_analysis,
+        dependencies: dependency_analysis,
+        cochange: cochange_analysis,
+        temporal,
+        propagation,
+        timeline,
+        sequences,
+        followups,
+        rework,
+        examples,
+        hotspots,
+        difficulty,
     })
 }
 
@@ -194,9 +254,6 @@ fn build_complexity_analysis(results: &[FileComplexity]) -> ComplexityAnalysis {
     ComplexityAnalysis {
         average_complexity: mean,
         max_complexity: values.iter().fold(0, |max, value| max.max(*value as usize)),
-        complex_files: values
-            .iter()
-            .filter(|value| **value > threshold)
-            .count(),
+        complex_files: values.iter().filter(|value| **value > threshold).count(),
     }
 }

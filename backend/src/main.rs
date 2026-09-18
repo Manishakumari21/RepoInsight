@@ -23,6 +23,7 @@ use crate::{
 
 mod analysis;
 mod cache;
+mod dataset;
 mod github;
 
 #[derive(Serialize)]
@@ -51,7 +52,12 @@ fn api_error(error: anyhow::Error) -> ApiError {
 
     eprintln!("API error: {error:#}");
 
-    (status, Json(ErrorBody { error: error.to_string() }))
+    (
+        status,
+        Json(ErrorBody {
+            error: error.to_string(),
+        }),
+    )
 }
 
 #[derive(Clone)]
@@ -155,9 +161,10 @@ async fn get_repository_analysis(
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/json"),
         );
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
         return Ok(response);
     }
 
