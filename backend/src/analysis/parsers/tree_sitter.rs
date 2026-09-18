@@ -83,8 +83,6 @@ pub fn language_from_path(path: &str) -> Option<SupportedLanguage> {
     }
 }
 
-/// Resolve a raw dependency reference (e.g. "crate::app::models" or "from .utils import x")
-/// to the best-matching actual file path in the repository.
 pub fn resolve_dependency_path(
     reference: &str,
     source_file: &str,
@@ -96,14 +94,12 @@ pub fn resolve_dependency_path(
 
     let mut candidates: Vec<String> = Vec::new();
 
-    // Direct match (file path or module path that equals file path)
     for variant in path_variants(&clean) {
         if files.contains(&variant) {
             candidates.push(variant);
         }
     }
 
-    // Relative to source file's directory
     for variant in path_variants(&clean) {
         let joined = format!("{}/{}", source_dir_str, variant);
         if files.contains(&joined) {
@@ -111,7 +107,6 @@ pub fn resolve_dependency_path(
         }
     }
 
-    // Try as directory index (module + __init__.py or mod.rs)
     if !candidates.is_empty() {
         return Some(candidates[0].clone());
     }
@@ -154,7 +149,6 @@ fn path_variants(clean: &str) -> Vec<String> {
         .to_owned();
 
     if normalized.contains('/') {
-        // try dropping leading "crate/src" prefix (Rust crate path)
         let full = normalized.clone();
         variants.push(full.clone());
         variants.push(normalized.strip_prefix("crate/").unwrap_or(&full).to_owned());
