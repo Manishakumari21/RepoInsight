@@ -216,10 +216,9 @@ async fn fetch_commit_details(
         let sha = sha.clone();
 
         tasks.spawn(async move {
-            let _permit = semaphore
-                .acquire()
-                .await
-                .map_err(|error| anyhow::Error::msg(format!("failed to acquire semaphore: {error}")))?;
+            let _permit = semaphore.acquire().await.map_err(|error| {
+                anyhow::Error::msg(format!("failed to acquire semaphore: {error}"))
+            })?;
 
             let endpoint = format!("/repos/{owner}/{repo}/commits/{sha}");
 

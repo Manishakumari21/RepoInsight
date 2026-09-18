@@ -115,7 +115,11 @@ pub fn resolve_dependency_path(
         for extension in ["py", "rs", "js", "ts", "tsx", "jsx", "mjs", "cjs"] {
             let with_ext = format!("{}.{}", variant, extension);
             let joined = format!("{}/{}", source_dir_str, with_ext);
-            let relative = format!("{}/{}", source_file.rsplit('/').next().unwrap_or(""), with_ext);
+            let relative = format!(
+                "{}/{}",
+                source_file.rsplit('/').next().unwrap_or(""),
+                with_ext
+            );
             if files.contains(&joined) {
                 return Some(joined);
             }
@@ -151,7 +155,12 @@ fn path_variants(clean: &str) -> Vec<String> {
     if normalized.contains('/') {
         let full = normalized.clone();
         variants.push(full.clone());
-        variants.push(normalized.strip_prefix("crate/").unwrap_or(&full).to_owned());
+        variants.push(
+            normalized
+                .strip_prefix("crate/")
+                .unwrap_or(&full)
+                .to_owned(),
+        );
         variants.push(normalized.strip_prefix("src/").unwrap_or(&full).to_owned());
     } else {
         variants.push(normalized.clone());
@@ -335,11 +344,7 @@ fn collect_dependency_references(
     }
 }
 
-fn collect_es_dependency_references(
-    node: Node<'_>,
-    source: &[u8],
-    references: &mut Vec<String>,
-) {
+fn collect_es_dependency_references(node: Node<'_>, source: &[u8], references: &mut Vec<String>) {
     let is_import = matches!(
         node.kind(),
         "import_statement" | "export_statement" | "import_clause"
@@ -596,8 +601,14 @@ const yaml = require('yaml');
 
         let references = extract_dependency_references(source, &parsed);
 
-        assert!(references.iter().any(|r| r == "./api"), "got {references:?}");
-        assert!(references.iter().any(|r| r == "../config.json"), "got {references:?}");
+        assert!(
+            references.iter().any(|r| r == "./api"),
+            "got {references:?}"
+        );
+        assert!(
+            references.iter().any(|r| r == "../config.json"),
+            "got {references:?}"
+        );
         assert!(references.iter().any(|r| r == "yaml"), "got {references:?}");
     }
 

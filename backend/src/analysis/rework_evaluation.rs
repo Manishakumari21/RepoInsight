@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 
 use serde::Serialize;
@@ -44,7 +43,7 @@ pub fn parse_labels(csv: &str) -> Result<Vec<LabelRow>, String> {
                 return Err(format!(
                     "line {}: actual_rework must be true/false, got {other:?}",
                     line_number + 1
-                ))
+                ));
             }
         };
 
@@ -157,12 +156,8 @@ pub fn run_evaluation() -> EvaluationReport {
     let config = PropagationConfig::default();
 
     let (_, history_metrics) = history::analyze(&commits);
-    let rework = propagation_history::detect_rework(
-        &commits,
-        &[],
-        &history_metrics.cochange_pairs,
-        &config,
-    );
+    let rework =
+        propagation_history::detect_rework(&commits, &[], &history_metrics.cochange_pairs, &config);
 
     let mut predicted: HashMap<(String, String), bool> = HashMap::new();
     let mut rule_for: HashMap<(String, String), String> = HashMap::new();
@@ -427,10 +422,7 @@ mod tests {
     fn missing_predictions_count_as_negative() {
         let labels = vec![label("a", "b", true), label("c", "d", false)];
 
-        assert_eq!(
-            confusion_counts(&labels, &HashMap::new()),
-            (0, 0, 1, 1)
-        );
+        assert_eq!(confusion_counts(&labels, &HashMap::new()), (0, 0, 1, 1));
     }
 
     #[test]
@@ -488,7 +480,10 @@ mod tests {
         assert_eq!(report.pairs.len(), 6);
 
         let metrics = &report.metrics;
-        assert_eq!((metrics.tp, metrics.fp, metrics.tn, metrics.fn_count), (0, 2, 4, 0));
+        assert_eq!(
+            (metrics.tp, metrics.fp, metrics.tn, metrics.fn_count),
+            (0, 2, 4, 0)
+        );
         assert_eq!(metrics.precision, Some(0.0));
         assert_eq!(metrics.recall, None);
         assert_eq!(metrics.false_positive_rate, Some(2.0 / 6.0));
@@ -499,6 +494,10 @@ mod tests {
             .filter(|pair| pair.predicted_rework)
             .collect();
         assert_eq!(flagged.len(), 2);
-        assert!(flagged.iter().all(|pair| pair.rule.as_deref() == Some("repeated-touch")));
+        assert!(
+            flagged
+                .iter()
+                .all(|pair| pair.rule.as_deref() == Some("repeated-touch"))
+        );
     }
 }

@@ -84,10 +84,7 @@ mod tests {
 
         cache.insert("owner/repo", b"payload".to_vec()).await;
 
-        assert_eq!(
-            cache.get("owner/repo").await,
-            Some(b"payload".to_vec())
-        );
+        assert_eq!(cache.get("owner/repo").await, Some(b"payload".to_vec()));
     }
 
     #[tokio::test]

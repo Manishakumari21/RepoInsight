@@ -399,10 +399,8 @@ pub fn detect_rework(
                 continue;
             }
 
-            let mut overlap: Vec<String> = file_sets[i]
-                .intersection(&file_sets[j])
-                .cloned()
-                .collect();
+            let mut overlap: Vec<String> =
+                file_sets[i].intersection(&file_sets[j]).cloned().collect();
             overlap.sort();
 
             for file in overlap {
@@ -444,8 +442,7 @@ pub fn detect_rework(
                     })
                 });
                 if related {
-                    let mut target_files: Vec<String> =
-                        file_sets[j].iter().cloned().collect();
+                    let mut target_files: Vec<String> = file_sets[j].iter().cloned().collect();
                     target_files.sort();
                     let file = target_files.first().cloned().unwrap_or_default();
                     let key = (
@@ -547,9 +544,7 @@ pub fn build_examples(
             continue;
         };
         let mut signals = vec!["sequence".to_owned()];
-        if sequence.files.len() == 2
-            && cochange_pairs.contains_key(&canonical_pair(first, last))
-        {
+        if sequence.files.len() == 2 && cochange_pairs.contains_key(&canonical_pair(first, last)) {
             signals.push("co-change".to_owned());
         }
         if sequence
@@ -585,10 +580,7 @@ pub fn build_examples(
     let total = examples.len();
     examples.truncate(MAX_EXAMPLES);
 
-    HistoricalExamples {
-        examples,
-        total,
-    }
+    HistoricalExamples { examples, total }
 }
 
 fn sorted_commits(commits: &[Commit]) -> Vec<&Commit> {

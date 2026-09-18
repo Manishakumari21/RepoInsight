@@ -196,7 +196,9 @@ fn build_reasons(signals: FileSignals) -> Vec<String> {
         }
     }
 
-    if reasons.is_empty() && let Some((reason, _)) = ranked.first() {
+    if reasons.is_empty()
+        && let Some((reason, _)) = ranked.first()
+    {
         reasons.push(reason.to_string());
     }
 

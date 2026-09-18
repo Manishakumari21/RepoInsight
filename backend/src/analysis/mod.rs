@@ -1,6 +1,8 @@
 pub mod analyzer;
 pub mod complexity;
 pub mod dependencies;
+pub mod features;
+pub mod historical_features;
 pub mod history;
 pub mod models;
 pub mod parsers;
@@ -8,3 +10,4 @@ pub mod propagation_history;
 pub mod rework_evaluation;
 pub mod scoring;
 pub mod source;
+pub mod temporal_features;

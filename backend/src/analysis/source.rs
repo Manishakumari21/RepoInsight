@@ -37,10 +37,7 @@ pub async fn collect_source_files(
             match fetch_source_file(client, &file).await {
                 Ok(file) => file,
                 Err(error) => {
-                    eprintln!(
-                        "Warning: skipping source file {}: {error:#}",
-                        file.path
-                    );
+                    eprintln!("Warning: skipping source file {}: {error:#}", file.path);
                     None
                 }
             }

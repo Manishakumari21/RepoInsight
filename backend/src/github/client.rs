@@ -1,9 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use reqwest::{
-    Client, Response, StatusCode,
-    header::HeaderMap,
-};
+use reqwest::{Client, Response, StatusCode, header::HeaderMap};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 
@@ -22,10 +19,7 @@ pub enum GithubError {
     RateLimit { message: String },
 
     #[error("failed to request GitHub API: {url}: {source}")]
-    Network {
-        url: String,
-        source: reqwest::Error,
-    },
+    Network { url: String, source: reqwest::Error },
 
     #[error("failed to parse GitHub API response: {0}")]
     Deserialize(#[from] reqwest::Error),
@@ -54,9 +48,9 @@ impl GithubClient {
         let mut authenticated = false;
 
         if let Some(token) = &token {
-            if let Ok(header_value) = reqwest::header::HeaderValue::from_str(&format!(
-                "Bearer {token}"
-            )) {
+            if let Ok(header_value) =
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            {
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert(reqwest::header::AUTHORIZATION, header_value);
                 builder = builder.default_headers(headers);
@@ -71,7 +65,10 @@ impl GithubClient {
 
         let client = builder.build().map_err(GithubError::Client)?;
 
-        Ok(Self { client, authenticated })
+        Ok(Self {
+            client,
+            authenticated,
+        })
     }
 
     pub async fn get<T>(&self, endpoint: &str) -> Result<T, GithubError>
@@ -93,8 +90,7 @@ impl GithubClient {
             let response = match self.client.get(url).send().await {
                 Ok(response) => response,
                 Err(source) => {
-                    if Self::is_transient_send(&source)
-                        && transient_retries < TRANSIENT_MAX_RETRIES
+                    if Self::is_transient_send(&source) && transient_retries < TRANSIENT_MAX_RETRIES
                     {
                         transient_retries += 1;
                         tokio::time::sleep(Self::transient_delay(transient_retries)).await;
@@ -227,9 +223,6 @@ impl GithubClient {
             return Err(GithubError::Api { status, body });
         }
 
-        response
-            .json::<T>()
-            .await
-            .map_err(GithubError::Deserialize)
+        response.json::<T>().await.map_err(GithubError::Deserialize)
     }
 }

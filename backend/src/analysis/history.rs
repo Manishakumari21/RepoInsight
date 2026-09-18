@@ -1,4 +1,3 @@
-
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 
@@ -321,10 +320,7 @@ mod tests {
 
     #[test]
     fn file_history_aggregates_churn() {
-        let commits = vec![
-            commit(1, vec![file("a.rs")]),
-            commit(2, vec![file("a.rs")]),
-        ];
+        let commits = vec![commit(1, vec![file("a.rs")]), commit(2, vec![file("a.rs")])];
 
         let (_, metrics) = analyze(&commits);
 
@@ -351,10 +347,7 @@ mod tests {
     #[test]
     fn generated_paths_are_ignored() {
         let commits = vec![
-            commit(
-                100,
-                vec![file("src/a.rs"), file("target/debug/file")],
-            ),
+            commit(100, vec![file("src/a.rs"), file("target/debug/file")]),
             commit(
                 200,
                 vec![file("src/b.rs"), file("node_modules/pkg/index.js")],
@@ -366,7 +359,10 @@ mod tests {
         assert!(metrics.file_changes.contains_key("src/a.rs"));
         assert!(metrics.file_changes.contains_key("src/b.rs"));
         assert!(!metrics.file_changes.contains_key("target/debug/file"));
-        assert!(!metrics.file_changes.contains_key("node_modules/pkg/index.js"));
+        assert!(
+            !metrics
+                .file_changes
+                .contains_key("node_modules/pkg/index.js")
+        );
     }
 }
-

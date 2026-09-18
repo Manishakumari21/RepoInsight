@@ -5,6 +5,9 @@ use std::collections::HashMap;
 pub struct RepositoryAnalysis {
     pub repository: RepositoryInfo,
     pub source: SourceAnalysis,
+    pub structural_features: Vec<crate::analysis::features::StructuralFeatures>,
+    pub historical_features: Vec<crate::analysis::historical_features::HistoricalFeatures>,
+    pub temporal_features: Vec<crate::analysis::temporal_features::TemporalFeatures>,
     pub complexity: ComplexityAnalysis,
     pub history: HistoryAnalysis,
     pub dependencies: DependencyAnalysis,

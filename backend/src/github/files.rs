@@ -37,4 +37,3 @@ impl RepositoryFile {
         Ok(response.tree)
     }
 }
-
