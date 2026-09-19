@@ -15,6 +15,7 @@ use crate::{
         source::{self, SourceFile},
         temporal_features,
     },
+    dataset::{self, DatasetConfig, DatasetRow},
     github::{
         client::GithubClient, commits::Commit, files::RepositoryFile, repository::Repository,
     },
@@ -185,6 +186,78 @@ pub async fn analyze_repository(
         hotspots,
         difficulty,
     })
+}
+
+pub async fn build_ml_dataset(
+    client: &GithubClient,
+    owner: &str,
+    repo: &str,
+) -> Result<Vec<DatasetRow>> {
+    let repository = Repository::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch repository {owner}/{repo}"))?;
+
+    let files = RepositoryFile::fetch_tree(client, owner, repo, &repository.default_branch)
+        .await
+        .with_context(|| format!("failed to fetch repository tree for {owner}/{repo}"))?;
+
+    let commits = Commit::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch commits for {owner}/{repo}"))?;
+
+    let source_files = source::collect_source_files(client, &files)
+        .await
+        .with_context(|| format!("failed to collect source files for {owner}/{repo}"))?;
+
+    let file_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
+
+    let (file_complexity, file_edges) = analyze_source_files(&source_files, &file_paths);
+
+    let dependency_metrics = dependencies::analyze(&file_edges);
+
+    let structural: HashMap<String, features::StructuralFeatures> = file_complexity
+        .iter()
+        .filter_map(|file| {
+            source_files
+                .iter()
+                .find(|source| source.path == file.path)
+                .map(|source| {
+                    (
+                        file.path.clone(),
+                        features::build_structural_features(
+                            source,
+                            &file.complexity,
+                            &dependency_metrics,
+                        ),
+                    )
+                })
+        })
+        .collect();
+
+    let rows = dataset::build_dataset(
+        &commits,
+        &structural,
+        &file_edges,
+        &DatasetConfig::default(),
+    );
+
+    let report = dataset::validate_dataset(&rows, &commits);
+    if !report.removed.is_empty() {
+        let details: Vec<String> = report
+            .removed
+            .iter()
+            .take(5)
+            .map(|row| format!("row {}: {}", row.index, row.reason))
+            .collect();
+        anyhow::bail!(
+            "generated dataset failed validation: {}/{} rows invalid ({})",
+            report.removed.len(),
+            report.total_rows,
+            details.join("; ")
+        );
+    }
+
+    Ok(rows)
 }
 
 #[derive(Debug)]

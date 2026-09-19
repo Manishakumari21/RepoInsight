@@ -12,6 +12,11 @@
 //! `docs`/phases); all historical, temporal, and label information is
 //! strictly prefix-based.
 
+#![allow(
+    dead_code,
+    reason = "Phase 5 library API in a binary crate: exercised by unit tests, consumed by Phase 6/export tooling, not by the serving binary"
+)]
+
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io;

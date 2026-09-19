@@ -10,8 +10,36 @@ import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { Landing } from './components/Landing'
 import { Dashboard } from './components/Dashboard'
+import { DashboardSkeleton } from './components/primitives'
 import { ErrorBanner } from './components/Status'
 import './App.css'
+
+function useRevealOnScroll(enabled: boolean, rescan: unknown) {
+  useEffect(() => {
+    if (!enabled) return
+    const elements = Array.from(
+      document.querySelectorAll('[data-reveal]:not(.in)'),
+    )
+    if (elements.length === 0) return
+    if (typeof IntersectionObserver === 'undefined') {
+      for (const element of elements) element.classList.add('in')
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in')
+            observer.unobserve(entry.target)
+          }
+        }
+      },
+      { rootMargin: '0px 0px -8% 0px', threshold: 0.05 },
+    )
+    for (const element of elements) observer.observe(element)
+    return () => observer.disconnect()
+  }, [enabled, rescan])
+}
 
 function buildRepositoryUrl(owner: string, repo: string): string {
   return `https://github.com/${owner}/${repo}`
@@ -51,6 +79,8 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [active, setActive] = useState<SectionId>('overview')
   const cancelledRef = useRef(false)
+
+  useRevealOnScroll(analysis !== null, loading)
 
   useEffect(() => {
     cancelledRef.current = false
@@ -116,6 +146,9 @@ function App() {
 
   return (
     <div className="app">
+      <a className="skip-link" href="#main-content">
+        Skip to dashboard content
+      </a>
       <Sidebar
         active={active}
         onNavigate={handleNavigate}
@@ -125,6 +158,7 @@ function App() {
       <div className="main">
         {analysis && (
           <Topbar
+            key={`${owner}/${repo}`}
             owner={owner}
             repo={repo}
             branch={analysis.repository.default_branch}
@@ -132,7 +166,7 @@ function App() {
             onSubmit={handleUrlSubmit}
           />
         )}
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           {analysis ? (
             <>
               {error && (
@@ -143,7 +177,11 @@ function App() {
                   }
                 />
               )}
-              <Dashboard owner={owner} repo={repo} analysis={analysis} />
+              {loading ? (
+                <DashboardSkeleton />
+              ) : (
+                <Dashboard owner={owner} repo={repo} analysis={analysis} />
+              )}
             </>
           ) : (
             <Landing

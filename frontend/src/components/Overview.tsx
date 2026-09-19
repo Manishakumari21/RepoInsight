@@ -2,43 +2,7 @@ import type { RepositoryAnalysis } from '../types'
 import { formatBytes, formatDate, formatNumber } from '../types'
 import { difficultyColor } from '../lib/palette'
 import { commitsPerMonth, formatRate } from '../lib/derive'
-
-function StatCard({
-  label,
-  value,
-  sub,
-}: {
-  label: string
-  value: string
-  sub?: string
-}) {
-  return (
-    <div className="stat-card">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      {sub && <div className="stat-sub">{sub}</div>}
-    </div>
-  )
-}
-
-function Insight({
-  value,
-  label,
-  tone,
-}: {
-  value: string
-  label: string
-  tone?: string
-}) {
-  return (
-    <div className="insight">
-      <span className="insight-value" style={tone ? { color: tone } : undefined}>
-        {value}
-      </span>
-      <span className="insight-label">{label}</span>
-    </div>
-  )
-}
+import { Stat } from './primitives'
 
 export function Overview({
   owner,
@@ -61,7 +25,7 @@ export function Overview({
 
   return (
     <section id="overview" className="overview">
-      <div className="hero">
+      <div className="hero" data-reveal>
         <div className="hero-eyebrow">Repository Analysis</div>
         <h1 className="hero-title">{repository.name}</h1>
         <p className="hero-sub">
@@ -79,36 +43,36 @@ export function Overview({
       </div>
 
       <div className="insights">
-        <Insight
+        <Stat
           value={`${difficulty.level} · ${Math.round(difficulty.score)}`}
           label="Repository risk"
           tone={levelTone}
         />
-        <Insight
+        <Stat
           value={rate != null ? `≈${formatRate(rate)}/mo` : '—'}
           label="Commit velocity"
         />
-        <Insight
+        <Stat
           value={`+${formatNumber(history.total_additions)} · −${formatNumber(history.total_deletions)}`}
           label="Lines added · deleted"
         />
-        <Insight
+        <Stat
           value={`${formatNumber(flagged)} · ${formatNumber(hotspots.length)}`}
           label="Flagged · hotspots"
         />
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Total Files" value={formatNumber(repository.total_files)} />
-        <StatCard
+        <Stat label="Total Files" value={formatNumber(repository.total_files)} />
+        <Stat
           label="Source Files"
           value={formatNumber(source.source_files)}
           sub={formatBytes(source.total_size_bytes)}
         />
-        <StatCard label="Lines of Code" value={formatNumber(source.total_lines)} />
-        <StatCard label="Commits" value={formatNumber(history.total_commits)} />
-        <StatCard label="Contributors" value={formatNumber(history.active_contributors)} />
-        <StatCard
+        <Stat label="Lines of Code" value={formatNumber(source.total_lines)} />
+        <Stat label="Commits" value={formatNumber(history.total_commits)} />
+        <Stat label="Contributors" value={formatNumber(history.active_contributors)} />
+        <Stat
           label="Dependencies"
           value={formatNumber(dependencies.total_dependencies)}
           sub={`${formatNumber(dependencies.connected_files)} connected files`}

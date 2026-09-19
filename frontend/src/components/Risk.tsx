@@ -45,6 +45,11 @@ export function Risk({
         <div className="gauge-wrap">
           <div
             className="gauge"
+            role="progressbar"
+            aria-label={`Repository difficulty score ${Math.round(difficulty.score)} of 100, level ${difficulty.level}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(difficulty.score)}
             style={{
               background: `conic-gradient(${color} ${percent}%, var(--bg-elev) ${percent}% 100%)`,
             }}

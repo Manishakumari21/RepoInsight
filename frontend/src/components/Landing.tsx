@@ -23,10 +23,10 @@ export function Landing({
     <div className="landing">
       <div className="landing-hero">
         <div className="landing-eyebrow">Repository Intelligence</div>
-        <h1 className="landing-title">Analyze any public GitHub repository</h1>
+        <h1 className="landing-title">Analyze your first repository</h1>
         <p className="landing-sub">
-          Paste a GitHub repository URL to get code complexity, risk hotspots,
-          dependency coupling, and repository history insights.
+          RepoInsight looks at commit history and code structure to show
+          what&apos;s likely to break together.
         </p>
       </div>
 
@@ -47,7 +47,7 @@ export function Landing({
             spellCheck={false}
           />
           <button className="landing-button" type="submit" disabled={loading}>
-            {loading ? 'Analyzing repository...' : 'Analyze Repository'}
+            {loading ? 'Analyzing…' : 'Analyze a repository'}
           </button>
         </div>
         {error && (
@@ -58,7 +58,7 @@ export function Landing({
         {loading && (
           <div className="landing-loading" role="status">
             <div className="spinner" aria-hidden="true" />
-            <span>Analyzing repository...</span>
+            <span>Analyzing commits…</span>
           </div>
         )}
       </form>

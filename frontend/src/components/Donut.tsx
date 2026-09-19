@@ -5,11 +5,13 @@ export function Donut({
   size = 124,
   thickness = 14,
   children,
+  label,
 }: {
-  segments: { value: number; color: string }[]
+  segments: { value: number; color: string; name?: string }[]
   size?: number
   thickness?: number
   children?: ReactNode
+  label?: string
 }) {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0)
   const radius = (size - thickness) / 2
@@ -30,6 +32,15 @@ export function Donut({
         height={size}
         viewBox={`0 0 ${size} ${size}`}
         role="img"
+        aria-label={
+          label ??
+          segments
+            .map(
+              (segment, index) =>
+                `${segment.name ?? `segment ${index + 1}`}: ${segment.value}`,
+            )
+            .join(', ')
+        }
       >
         <circle
           className="donut-track"

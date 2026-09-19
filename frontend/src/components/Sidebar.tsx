@@ -92,10 +92,13 @@ export function Sidebar({
             key={item.id}
             type="button"
             className={`nav-button${active === item.id ? ' active' : ''}`}
+            aria-current={active === item.id ? 'true' : undefined}
+            aria-label={item.label}
+            title={item.label}
             onClick={() => onNavigate(item.id)}
           >
             <span className="nav-icon">{ICONS[item.id]}</span>
-            <span>{item.label}</span>
+            <span className="nav-text">{item.label}</span>
           </button>
         ))}
       </nav>

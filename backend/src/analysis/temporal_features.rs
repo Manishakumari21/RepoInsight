@@ -108,6 +108,10 @@ fn mean_gap(stamps: &[i64]) -> Option<i64> {
 
 impl TemporalFeatures {
     /// Zero signals for files absent from the considered evidence.
+    #[allow(
+        dead_code,
+        reason = "Phase 5 library API: used by dataset construction and unit tests"
+    )]
     pub fn empty(file_path: &str) -> Self {
         empty_features(file_path)
     }

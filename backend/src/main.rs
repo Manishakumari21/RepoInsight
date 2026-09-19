@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    Json, Router, debug_handler,
+    Json, Router,
+    body::Body,
+    debug_handler,
     extract::{Path, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
@@ -93,6 +95,10 @@ async fn main() -> Result<()> {
             "/api/repositories/{owner}/{repo}/analysis",
             get(get_repository_analysis),
         )
+        .route(
+            "/api/repositories/{owner}/{repo}/dataset",
+            get(get_repository_dataset),
+        )
         .route("/api/evaluation/rework", get(get_rework_evaluation))
         .layer(cors)
         .with_state(state);
@@ -181,4 +187,29 @@ async fn get_repository_analysis(
 
 async fn get_rework_evaluation() -> Json<analysis::rework_evaluation::EvaluationReport> {
     Json(analysis::rework_evaluation::run_evaluation())
+}
+
+#[debug_handler]
+async fn get_repository_dataset(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let rows = analysis::analyzer::build_ml_dataset(&state.github, &owner, &repo)
+        .await
+        .map_err(api_error)?;
+
+    let mut body = String::new();
+    for row in &rows {
+        let line = serde_json::to_string(row).map_err(|error| {
+            api_error(anyhow::anyhow!("failed to serialize dataset row: {error}"))
+        })?;
+        body.push_str(&line);
+        body.push('\n');
+    }
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-ndjson")
+        .body(Body::from(body))
+        .map_err(|error| api_error(anyhow::anyhow!("failed to build dataset response: {error}")))
 }

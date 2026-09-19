@@ -21,13 +21,16 @@ export function Explorer({ hotspots }: { hotspots: Hotspot[] }) {
       </div>
       <div className="table-scroll">
         <table className="file-table">
+          <caption className="visually-hidden">
+            Files ranked by risk score with severity and reasons
+          </caption>
           <thead>
             <tr>
-              <th className="col-rank">#</th>
-              <th className="col-path">Path</th>
-              <th className="col-severity">Severity</th>
-              <th className="col-score">Score</th>
-              <th className="col-reasons">Reasons</th>
+              <th className="col-rank" scope="col">#</th>
+              <th className="col-path" scope="col">Path</th>
+              <th className="col-severity" scope="col">Severity</th>
+              <th className="col-score" scope="col">Score</th>
+              <th className="col-reasons" scope="col">Reasons</th>
             </tr>
           </thead>
           <tbody>

@@ -4,10 +4,13 @@ import { severityColor, severityOf, type Severity } from '../lib/palette'
 import { Donut } from './Donut'
 import { Empty } from './Status'
 import { Panel } from './Panel'
+import { useMounted } from './primitives'
 
 function HotspotRow({ hotspot, rank }: { hotspot: Hotspot; rank: number }) {
   const percent = Math.min(hotspot.score, 100)
   const severity = severityOf(hotspot.score)
+  const mounted = useMounted()
+  const tooltip = `Score ${hotspot.score.toFixed(1)} — ${hotspot.reasons.join('; ')}`
 
   return (
     <div className={`hotspot-row severity-${severity}`}>
@@ -22,10 +25,15 @@ function HotspotRow({ hotspot, rank }: { hotspot: Hotspot; rank: number }) {
           </div>
           <span className="hotspot-score">{Math.round(hotspot.score)}</span>
         </div>
-        <div className="hotspot-bar">
+        <div
+          className="hotspot-bar"
+          role="img"
+          aria-label={tooltip}
+          title={tooltip}
+        >
           <div
             className={`hotspot-fill ${severity}`}
-            style={{ width: `${percent}%` }}
+            style={{ width: mounted ? `${percent}%` : '0%' }}
           />
         </div>
         <div className="hotspot-reasons">{hotspot.reasons.join(' · ')}</div>
@@ -35,10 +43,13 @@ function HotspotRow({ hotspot, rank }: { hotspot: Hotspot; rank: number }) {
 }
 
 export function Hotspots({ hotspots }: { hotspots: Hotspot[] }) {
-  const top = hotspots.slice(0, 10)
+  const ranked = [...hotspots].sort(
+    (a, b) => b.score - a.score || a.path.localeCompare(b.path),
+  )
+  const top = ranked.slice(0, 10)
   const counts: Record<Severity, number> = { high: 0, medium: 0, low: 0 }
   for (const hotspot of hotspots) counts[severityOf(hotspot.score)] += 1
-  const lead = hotspots[0]
+  const lead = ranked[0]
 
   return (
     <Panel id="hotspots" title="Hotspots" hint="Top files by risk score">

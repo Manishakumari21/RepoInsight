@@ -36,6 +36,7 @@ async function readErrorPayload(response: Response): Promise<{
       message = body.error.trim()
     }
   } catch {
+    // Response body is not JSON; fall back to the generic message below.
   }
 
   const retryAfterHeader = response.headers.get('retry-after')

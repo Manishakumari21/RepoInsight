@@ -18,6 +18,10 @@ pub struct HistoricalFeatures {
 
 impl HistoricalFeatures {
     /// Zero history for files with no prior changes (e.g. first targets).
+    #[allow(
+        dead_code,
+        reason = "Phase 5 library API: used by dataset construction and unit tests"
+    )]
     pub fn empty(file_path: &str) -> Self {
         Self {
             file_path: file_path.to_owned(),
@@ -36,6 +40,10 @@ impl HistoricalFeatures {
 /// without a usable timestamp are skipped. Unlike the repository-level
 /// snapshot above, this never observes the target commit or any future
 /// commit, and contributor counts are per-file rather than repository-wide.
+#[allow(
+    dead_code,
+    reason = "Phase 5 library API: used by dataset construction and unit tests"
+)]
 pub fn build_historical_prefix(
     commits: &[Commit],
     cutoff_ts: i64,
