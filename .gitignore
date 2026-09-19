@@ -15,6 +15,9 @@ dist/
 .env
 .env.*
 
+# ML artifacts (generated, never commit)
+ml/artifacts/
+
 # OS / Editor
 .DS_Store
 .vscode/
