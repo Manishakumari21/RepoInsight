@@ -28,3 +28,9 @@ ml/src/repoinsight_ml.egg-info/
 .DS_Store
 .vscode/
 .idea/
+# Generated benchmark results
+ml/*_results.json
+ml/benchmark_*.json
+ml/error_analysis.json
+ml/model_comparison.json
+ml/multi_repo_benchmark.json
