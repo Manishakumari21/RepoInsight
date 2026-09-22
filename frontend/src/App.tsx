@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, fetchRepositoryAnalysis } from './api'
+import {
+  ApiError,
+  describeLocalPathError,
+  fetchLocalAnalysis,
+  fetchLocalPredictions,
+  fetchPredictions,
+  fetchRepositoryAnalysis,
+} from './api'
 import {
   describeGitHubUrlError,
   parseGitHubUrl,
 } from './lib/githubUrl'
-import { NAV_SECTIONS, type SectionId } from './nav'
-import type { RepositoryAnalysis } from './types'
-import { Sidebar } from './components/Sidebar'
-import { Topbar } from './components/Topbar'
+import type { PredictionsResponse, RepositoryAnalysis } from './types'
+import type { ActiveSource } from './lib/repoSource'
 import { Landing } from './components/Landing'
 import { Dashboard } from './components/Dashboard'
 import { DashboardSkeleton } from './components/primitives'
@@ -41,20 +46,23 @@ function useRevealOnScroll(enabled: boolean, rescan: unknown) {
   }, [enabled, rescan])
 }
 
-function buildRepositoryUrl(owner: string, repo: string): string {
-  return `https://github.com/${owner}/${repo}`
-}
-
-function analysisErrorHint(status: number): string {
+export function analysisErrorHint(status: number): string {
   switch (status) {
-    case 404:
-      return 'Repository not found. Check the owner and repository names in the URL.'
+    case 400:
+    case 422:
+      return 'The repository input was rejected by the analysis service.'
     case 403:
       return 'Access was denied. The repository may be private or GitHub is throttling this request.'
+    case 404:
+      return 'Repository not found. Check the URL or local path and try again.'
     case 429:
       return 'GitHub API rate limit reached. Wait a moment and try again.'
     case 500:
       return 'The analysis service hit an internal error. Please try again.'
+    case 502:
+    case 503:
+    case 504:
+      return 'The analysis service is unreachable (HTTP 502). Start the backend on port 3000 with `cargo run` in backend/ and try again.'
     default:
       return `The analysis request failed with HTTP ${status}.`
   }
@@ -72,12 +80,13 @@ function describeAnalysisError(err: unknown): string {
 }
 
 function App() {
-  const [owner, setOwner] = useState('')
-  const [repo, setRepo] = useState('')
+  const [source, setSource] = useState<ActiveSource | null>(null)
   const [analysis, setAnalysis] = useState<RepositoryAnalysis | null>(null)
+  const [predictions, setPredictions] = useState<PredictionsResponse | null>(null)
+  const [predictionsLoading, setPredictionsLoading] = useState(false)
+  const [predictionsError, setPredictionsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [active, setActive] = useState<SectionId>('overview')
   const cancelledRef = useRef(false)
 
   useRevealOnScroll(analysis !== null, loading)
@@ -89,47 +98,74 @@ function App() {
     }
   }, [])
 
-  const load = useCallback(async (ownerName: string, repoName: string) => {
+  const loadPredictions = useCallback(async (active: ActiveSource) => {
+    setPredictionsLoading(true)
+    setPredictionsError(null)
+    try {
+      const result =
+        active.kind === 'github'
+          ? await fetchPredictions(active.owner, active.repo)
+          : await fetchLocalPredictions(active.path)
+      if (cancelledRef.current) return
+      setPredictions(result)
+    } catch (err) {
+      if (cancelledRef.current) return
+      setPredictions(null)
+      setPredictionsError(describeAnalysisError(err))
+    } finally {
+      if (!cancelledRef.current) setPredictionsLoading(false)
+    }
+  }, [])
+
+  const loadGithub = useCallback(async (ownerName: string, repoName: string) => {
     setLoading(true)
     setError(null)
+    setPredictions(null)
     try {
       const result = await fetchRepositoryAnalysis(ownerName, repoName)
       if (cancelledRef.current) return
-      setOwner(ownerName)
-      setRepo(repoName)
+      const active: ActiveSource = { kind: 'github', owner: ownerName, repo: repoName }
+      setSource(active)
       setAnalysis(result)
-      setActive('overview')
+      void loadPredictions(active)
     } catch (err) {
       if (cancelledRef.current) return
       setError(describeAnalysisError(err))
     } finally {
       if (!cancelledRef.current) setLoading(false)
     }
-  }, [])
+  }, [loadPredictions])
 
-  useEffect(() => {
-    if (!analysis) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) setActive(entry.target.id as SectionId)
-        }
-      },
-      { rootMargin: '-20% 0px -70% 0px' },
-    )
-    for (const section of NAV_SECTIONS) {
-      const element = document.getElementById(section.id)
-      if (element) observer.observe(element)
+  const loadLocal = useCallback(async (repoPath: string) => {
+    const localError = describeLocalPathError(repoPath)
+    if (localError) {
+      setError(localError)
+      setLoading(false)
+      return
     }
-    return () => observer.disconnect()
-  }, [analysis])
+    setLoading(true)
+    setError(null)
+    setPredictions(null)
+    try {
+      const result = await fetchLocalAnalysis(repoPath.trim())
+      if (cancelledRef.current) return
+      const active: ActiveSource = {
+        kind: 'local',
+        path: repoPath.trim(),
+        label: result.repository.name,
+      }
+      setSource(active)
+      setAnalysis(result)
+      void loadPredictions(active)
+    } catch (err) {
+      if (cancelledRef.current) return
+      setError(describeAnalysisError(err))
+    } finally {
+      if (!cancelledRef.current) setLoading(false)
+    }
+  }, [loadPredictions])
 
-  function handleNavigate(id: SectionId) {
-    document.getElementById(id)?.scrollIntoView()
-    setActive(id)
-  }
-
-  function handleUrlSubmit(rawUrl: string) {
+  function handleGithubSubmit(rawUrl: string) {
     const parsed = parseGitHubUrl(rawUrl)
     if (!parsed.ok) {
       setError(describeGitHubUrlError(parsed.error))
@@ -137,10 +173,18 @@ function App() {
       return
     }
     setError(null)
-    void load(parsed.owner, parsed.repo)
+    void loadGithub(parsed.owner, parsed.repo)
   }
 
   function handleClearError() {
+    setError(null)
+  }
+
+  function handleImport() {
+    setSource(null)
+    setAnalysis(null)
+    setPredictions(null)
+    setPredictionsError(null)
     setError(null)
   }
 
@@ -149,50 +193,53 @@ function App() {
       <a className="skip-link" href="#main-content">
         Skip to dashboard content
       </a>
-      <Sidebar
-        active={active}
-        onNavigate={handleNavigate}
-        owner={owner}
-        repo={repo}
-      />
-      <div className="main">
-        {analysis && (
-          <Topbar
-            key={`${owner}/${repo}`}
-            owner={owner}
-            repo={repo}
-            branch={analysis.repository.default_branch}
-            loading={loading}
-            onSubmit={handleUrlSubmit}
-          />
-        )}
-        <main className="content" id="main-content" tabIndex={-1}>
-          {analysis ? (
-            <>
-              {error && (
-                <ErrorBanner
-                  message={error}
-                  onRetry={() =>
-                    handleUrlSubmit(buildRepositoryUrl(owner, repo))
+      {analysis && source ? (
+        <>
+          {error && (
+            <div style={{ padding: '12px 22px 0' }}>
+              <ErrorBanner
+                message={error}
+                onRetry={() => {
+                  if (source.kind === 'github') {
+                    void loadGithub(source.owner, source.repo)
+                  } else {
+                    void loadLocal(source.path)
                   }
-                />
-              )}
-              {loading ? (
+                }}
+              />
+            </div>
+          )}
+          {loading ? (
+            <div className="main full">
+              <main className="content" id="main-content" tabIndex={-1}>
                 <DashboardSkeleton />
-              ) : (
-                <Dashboard owner={owner} repo={repo} analysis={analysis} />
-              )}
-            </>
+              </main>
+            </div>
           ) : (
+            <Dashboard
+              source={source}
+              analysis={analysis}
+              predictions={predictions}
+              predictionsLoading={predictionsLoading}
+              predictionsError={predictionsError}
+              onRetryPredictions={() => void loadPredictions(source)}
+              onImport={handleImport}
+            />
+          )}
+        </>
+      ) : (
+        <div className="main full">
+          <main className="content" id="main-content" tabIndex={-1}>
             <Landing
               loading={loading}
               error={error}
-              onSubmit={handleUrlSubmit}
+              onGithubSubmit={handleGithubSubmit}
+              onLocalSubmit={(path) => void loadLocal(path)}
               onClearError={handleClearError}
             />
-          )}
-        </main>
-      </div>
+          </main>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,8 @@
-import type { RepositoryAnalysis, ReworkEvaluationReport } from './types'
+import type {
+  PredictionsResponse,
+  RepositoryAnalysis,
+  ReworkEvaluationReport,
+} from './types'
 
 export class ApiError extends Error {
   status: number
@@ -87,6 +91,84 @@ export async function fetchRepositoryAnalysis(
   }
 
   throw new Error('Analysis request failed')
+}
+
+export async function fetchLocalAnalysis(repoPath: string): Promise<RepositoryAnalysis> {
+  const url = `${VITE_API_BASE}/api/local/analysis`
+
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: repoPath }),
+    })
+  } catch (err) {
+    if (err instanceof Error) throw err
+    throw new Error('Network error while contacting the analysis service', { cause: err })
+  }
+
+  if (response.ok) {
+    return (await response.json()) as RepositoryAnalysis
+  }
+
+  const { message } = await readErrorPayload(response)
+  throw new ApiError(
+    message ? message : `Local analysis request failed: HTTP ${response.status}`,
+    response.status,
+  )
+}
+
+export function describeLocalPathError(raw: string): string | null {
+  if (!raw.trim()) return 'Please enter a local repository path.'
+  return null
+}
+
+export async function fetchPredictions(
+  owner: string,
+  repo: string,
+): Promise<PredictionsResponse> {
+  const url = `${VITE_API_BASE}/api/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/predictions`
+  return fetchJson<PredictionsResponse>(url, {}, 'Prediction request failed')
+}
+
+export async function fetchLocalPredictions(
+  repoPath: string,
+): Promise<PredictionsResponse> {
+  const url = `${VITE_API_BASE}/api/local/predictions`
+  return fetchJson<PredictionsResponse>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: repoPath }),
+    },
+    'Local prediction request failed',
+  )
+}
+
+async function fetchJson<T>(
+  url: string,
+  init: RequestInit,
+  fallback: string,
+): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(url, init)
+  } catch (err) {
+    if (err instanceof Error) throw err
+    throw new Error('Network error while contacting the analysis service', { cause: err })
+  }
+
+  if (response.ok) {
+    return (await response.json()) as T
+  }
+
+  const { message } = await readErrorPayload(response)
+  throw new ApiError(
+    message ? message : `${fallback}: HTTP ${response.status}`,
+    response.status,
+  )
 }
 
 export async function fetchReworkEvaluation(): Promise<ReworkEvaluationReport> {

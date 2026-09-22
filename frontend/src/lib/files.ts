@@ -1,0 +1,110 @@
+import type {
+  HistoricalFeatures,
+  RepositoryAnalysis,
+  StructuralFeatures,
+} from '../types'
+
+export interface FileStats {
+  path: string
+  changes: number
+  complexity: number
+  dependencies: number
+  size: number
+}
+
+/** Union of analyzed file paths: parsed sources, hotspots, history. */
+export function collectFilePaths(analysis: RepositoryAnalysis): string[] {
+  const paths = new Set<string>()
+  for (const item of analysis.structural_features ?? []) paths.add(item.file_path)
+  for (const item of analysis.hotspots ?? []) paths.add(item.path)
+  for (const entry of analysis.timeline.entries ?? []) {
+    for (const file of entry.files ?? []) paths.add(file)
+  }
+  return [...paths].sort((a, b) => a.localeCompare(b))
+}
+
+export function buildFileStats(analysis: RepositoryAnalysis): Record<string, FileStats> {
+  const structural = new Map<string, StructuralFeatures>()
+  for (const item of analysis.structural_features ?? []) {
+    structural.set(item.file_path, item)
+  }
+  const historical = new Map<string, HistoricalFeatures>()
+  for (const item of analysis.historical_features ?? []) {
+    historical.set(item.file_path, item)
+  }
+  const stats: Record<string, FileStats> = {}
+  for (const path of collectFilePaths(analysis)) {
+    stats[path] = {
+      path,
+      changes: historical.get(path)?.previous_change_count ?? 0,
+      complexity: structural.get(path)?.cyclomatic_complexity ?? 0,
+      dependencies:
+        (structural.get(path)?.incoming_dependencies ?? 0) +
+        (structural.get(path)?.outgoing_dependencies ?? 0),
+      size: structural.get(path)?.file_size_bytes ?? 0,
+    }
+  }
+  return stats
+}
+
+export interface FileTreeNode {
+  name: string
+  path: string
+  children: FileTreeNode[]
+  isFile: boolean
+}
+
+/** Directory tree built from file paths, deterministic order. */
+export function buildFileTree(paths: string[]): FileTreeNode[] {
+  const root: FileTreeNode[] = []
+  const dirs = new Map<string, FileTreeNode>()
+  const byPath = new Map<string, FileTreeNode>()
+
+  const ensureDir = (path: string): FileTreeNode => {
+    const existing = byPath.get(path)
+    if (existing) return existing
+    const slash = path.lastIndexOf('/')
+    const name = slash < 0 ? path : path.slice(slash + 1)
+    const node: FileTreeNode = { name, path, children: [], isFile: false }
+    byPath.set(path, node)
+    dirs.set(path, node)
+    if (slash < 0) {
+      root.push(node)
+    } else {
+      ensureDir(path.slice(0, slash)).children.push(node)
+    }
+    return node
+  }
+
+  for (const full of paths) {
+    const slash = full.lastIndexOf('/')
+    const name = slash < 0 ? full : full.slice(slash + 1)
+    const node: FileTreeNode = { name, path: full, children: [], isFile: true }
+    if (slash < 0) {
+      root.push(node)
+    } else {
+      ensureDir(full.slice(0, slash)).children.push(node)
+    }
+  }
+
+  const sortTree = (nodes: FileTreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.isFile !== b.isFile) return a.isFile ? 1 : -1
+      return a.name.localeCompare(b.name)
+    })
+    for (const node of nodes) sortTree(node.children)
+  }
+  sortTree(root)
+  return root
+}
+
+/** Per-file change counts from timeline entries. */
+export function changeCounts(analysis: RepositoryAnalysis): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const entry of analysis.timeline.entries ?? []) {
+    for (const file of entry.files ?? []) {
+      counts.set(file, (counts.get(file) ?? 0) + 1)
+    }
+  }
+  return counts
+}

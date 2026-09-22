@@ -5,12 +5,10 @@ import { commitsPerMonth, formatRate } from '../lib/derive'
 import { Stat } from './primitives'
 
 export function Overview({
-  owner,
-  repo,
+  sourceLabel,
   analysis,
 }: {
-  owner: string
-  repo: string
+  sourceLabel: string
   analysis: RepositoryAnalysis
 }) {
   const { repository, source, history, dependencies, hotspots, difficulty } =
@@ -29,7 +27,7 @@ export function Overview({
         <div className="hero-eyebrow">Repository Analysis</div>
         <h1 className="hero-title">{repository.name}</h1>
         <p className="hero-sub">
-          {owner}/{repo} · {repository.default_branch} branch
+          {sourceLabel} · {repository.default_branch} branch
         </p>
         <div className="hero-chips">
           <span className="chip">

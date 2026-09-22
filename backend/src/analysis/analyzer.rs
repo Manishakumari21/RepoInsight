@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use crate::{
     analysis::{
@@ -19,6 +20,8 @@ use crate::{
     github::{
         client::GithubClient, commits::Commit, files::RepositoryFile, repository::Repository,
     },
+    local::LoadedLocalRepo,
+    timing::{AnalysisTimings, elapsed_ms},
 };
 
 pub async fn analyze_repository(
@@ -42,9 +45,132 @@ pub async fn analyze_repository(
         .await
         .with_context(|| format!("failed to collect source files for {owner}/{repo}"))?;
 
-    let source_analysis = source::build_source_analysis(&source_files);
+    let total_files = files.iter().filter(|file| file.kind == "blob").count();
+    let tree_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
 
-    let file_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
+    Ok(analyze_loaded_data(
+        repository.name,
+        repository.default_branch,
+        total_files,
+        &tree_paths,
+        &commits,
+        &source_files,
+    ))
+}
+
+/// Local Git entry point. Uses the same Phase 3/4/5 pipeline as GitHub mode;
+/// only the loader differs (local `git` history + working-tree files).
+/// CPU-bound analysis runs on the blocking pool so async workers stay
+/// responsive to lightweight requests such as `/health`.
+pub async fn analyze_local_repository(raw_path: &str) -> Result<RepositoryAnalysis> {
+    let loaded = crate::local::load_local_repo(raw_path).await?;
+    run_analysis_blocking(loaded).await
+}
+
+/// Timed local analysis (Phase 9 instrumentation): the real end-to-end
+/// pipeline — load, structural analysis, dataset construction — with
+/// honest per-stage timings. Fails exactly like the untimed path on
+/// error; no timings are fabricated.
+pub struct TimedAnalysis {
+    pub repository_name: String,
+    pub repository_branch: String,
+    pub analysis: RepositoryAnalysis,
+    pub timings: AnalysisTimings,
+}
+
+pub async fn analyze_local_timed(raw_path: &str) -> Result<TimedAnalysis> {
+    let total = Instant::now();
+    let timed_load = crate::local::load_local_repo_timed(raw_path).await?;
+    let mut timings = timed_load.timings;
+    let loaded = timed_load.repo;
+
+    let LoadedLocalRepo {
+        name,
+        default_branch,
+        total_files,
+        tree,
+        commits,
+        sources,
+        ..
+    } = loaded;
+    let repository_name = name.clone();
+    let repository_branch = default_branch.clone();
+    let tree_paths: HashSet<String> = tree.iter().map(|file| file.path.clone()).collect();
+
+    // One blocking task for the whole CPU-bound tail (analysis +
+    // dataset construction share the same owned inputs, so no expensive
+    // clones); each stage is timed separately inside with `Instant`.
+    let (analysis, structural_ms, dataset_row_count, dataset_ms) =
+        tokio::task::spawn_blocking(move || {
+            let stage = Instant::now();
+            let analysis = analyze_loaded_data(
+                name,
+                default_branch,
+                total_files,
+                &tree_paths,
+                &commits,
+                &sources,
+            );
+            let structural_ms = elapsed_ms(stage);
+            let stage = Instant::now();
+            let rows = build_dataset_from_loaded(&tree, &commits, &sources)?;
+            Ok::<_, anyhow::Error>((analysis, structural_ms, rows.len(), elapsed_ms(stage)))
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("local analysis task failed: {error}"))??;
+
+    timings.structural_analysis_ms = Some(structural_ms);
+    timings.dataset_construction_ms = Some(dataset_ms);
+    timings.dataset_row_count = dataset_row_count;
+    timings.total_ms = Some(elapsed_ms(total));
+
+    Ok(TimedAnalysis {
+        repository_name,
+        repository_branch,
+        analysis,
+        timings,
+    })
+}
+
+/// CPU-bound `analyze_loaded_data` isolated on the blocking pool.
+/// Same computation as before; only the executor changes.
+async fn run_analysis_blocking(loaded: LoadedLocalRepo) -> Result<RepositoryAnalysis> {
+    let LoadedLocalRepo {
+        name,
+        default_branch,
+        total_files,
+        tree,
+        commits,
+        sources,
+        ..
+    } = loaded;
+    let tree_paths: HashSet<String> = tree.iter().map(|file| file.path.clone()).collect();
+    tokio::task::spawn_blocking(move || {
+        analyze_loaded_data(
+            name,
+            default_branch,
+            total_files,
+            &tree_paths,
+            &commits,
+            &sources,
+        )
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("local analysis task failed: {error}"))
+}
+
+#[allow(clippy::too_many_lines)]
+fn analyze_loaded_data(
+    repo_name: String,
+    default_branch: String,
+    total_files: usize,
+    tree_paths: &HashSet<String>,
+    commits: &[Commit],
+    source_files: &[SourceFile],
+) -> RepositoryAnalysis {
+    let source_analysis = source::build_source_analysis(source_files);
+
+    let file_paths: HashSet<String> = tree_paths.clone();
 
     let (file_complexity, file_edges) = analyze_source_files(&source_files, &file_paths);
 
@@ -113,7 +239,7 @@ pub async fn analyze_repository(
     }
 
     let mut file_times: HashMap<String, Vec<i64>> = HashMap::new();
-    for commit in &commits {
+    for commit in commits {
         let Some(timestamp) = commit.timestamp else {
             continue;
         };
@@ -160,12 +286,10 @@ pub async fn analyze_repository(
     let difficulty =
         scoring::calculate_difficulty(&scoring_files, &history_metrics, &dependency_metrics);
 
-    let total_files = files.iter().filter(|file| file.kind == "blob").count();
-
-    Ok(RepositoryAnalysis {
+    RepositoryAnalysis {
         repository: RepositoryInfo {
-            name: repository.name,
-            default_branch: repository.default_branch,
+            name: repo_name,
+            default_branch,
             total_files,
         },
         source: source_analysis,
@@ -185,7 +309,7 @@ pub async fn analyze_repository(
         examples,
         hotspots,
         difficulty,
-    })
+    }
 }
 
 pub async fn build_ml_dataset(
@@ -209,6 +333,85 @@ pub async fn build_ml_dataset(
         .await
         .with_context(|| format!("failed to collect source files for {owner}/{repo}"))?;
 
+    build_dataset_from_loaded(&files, &commits, &source_files)
+}
+
+/// Local Git dataset entry point. Same Phase 5 construction as GitHub mode.
+/// Dataset construction is CPU-bound: isolated on the blocking pool.
+pub async fn build_ml_dataset_local(raw_path: &str) -> Result<Vec<DatasetRow>> {
+    let loaded = crate::local::load_local_repo(raw_path).await?;
+    let LoadedLocalRepo {
+        tree,
+        commits,
+        sources,
+        ..
+    } = loaded;
+
+    tokio::task::spawn_blocking(move || build_dataset_from_loaded(&tree, &commits, &sources))
+        .await
+        .map_err(|error| anyhow::anyhow!("local dataset task failed: {error}"))?
+}
+
+/// Inputs needed for per-file predictions: leakage-safe dataset rows
+/// plus the commit history backing historical examples.
+pub struct PredictionInputs {
+    pub rows: Vec<DatasetRow>,
+    pub commits: Vec<Commit>,
+}
+
+pub async fn prediction_inputs(
+    client: &GithubClient,
+    owner: &str,
+    repo: &str,
+) -> Result<PredictionInputs> {
+    let repository = Repository::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch repository {owner}/{repo}"))?;
+
+    let files = RepositoryFile::fetch_tree(client, owner, repo, &repository.default_branch)
+        .await
+        .with_context(|| format!("failed to fetch repository tree for {owner}/{repo}"))?;
+
+    let commits = Commit::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch commits for {owner}/{repo}"))?;
+
+    let source_files = source::collect_source_files(client, &files)
+        .await
+        .with_context(|| format!("failed to collect source files for {owner}/{repo}"))?;
+
+    Ok(PredictionInputs {
+        rows: build_dataset_from_loaded(&files, &commits, &source_files)?,
+        commits,
+    })
+}
+
+/// Local Git prediction inputs. Same construction as GitHub mode.
+/// Dataset construction is CPU-bound: isolated on the blocking pool.
+pub async fn prediction_inputs_local(raw_path: &str) -> Result<PredictionInputs> {
+    let loaded = crate::local::load_local_repo(raw_path).await?;
+    let LoadedLocalRepo {
+        tree,
+        commits,
+        sources,
+        ..
+    } = loaded;
+
+    let (rows, commits) = tokio::task::spawn_blocking(move || {
+        let rows = build_dataset_from_loaded(&tree, &commits, &sources)?;
+        Ok::<_, anyhow::Error>((rows, commits))
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("local prediction-input task failed: {error}"))??;
+
+    Ok(PredictionInputs { rows, commits })
+}
+
+fn build_dataset_from_loaded(
+    files: &[RepositoryFile],
+    commits: &[Commit],
+    source_files: &[SourceFile],
+) -> Result<Vec<DatasetRow>> {
     let file_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
 
     let (file_complexity, file_edges) = analyze_source_files(&source_files, &file_paths);
@@ -328,5 +531,144 @@ fn build_complexity_analysis(results: &[FileComplexity]) -> ComplexityAnalysis {
         average_complexity: mean,
         max_complexity: values.iter().fold(0, |max, value| max.max(*value as usize)),
         complex_files: values.iter().filter(|value| **value > threshold).count(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Minimal temp Git repo helper (mirrors `crate::local` test setup).
+    /// Never touches real user repositories.
+    struct TempRepo {
+        path: PathBuf,
+    }
+
+    impl TempRepo {
+        fn create(files: &[(&str, &str)], message: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "repoinsight-analyzer-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            ));
+            std::fs::create_dir_all(&dir).expect("create temp repo dir");
+            git(&dir, &["init"]);
+            git(&dir, &["config", "user.name", "RepoInsight Test"]);
+            git(&dir, &["config", "user.email", "test@repoinsight.local"]);
+            Self::write(&dir, files, message);
+            Self { path: dir }
+        }
+
+        fn write(dir: &std::path::Path, files: &[(&str, &str)], message: &str) {
+            for (rel, content) in files {
+                let absolute = dir.join(rel);
+                if let Some(parent) = absolute.parent() {
+                    std::fs::create_dir_all(parent).expect("create parent dirs");
+                }
+                std::fs::write(&absolute, content).expect("write fixture file");
+            }
+            git(dir, &["add", "."]);
+            git(
+                dir,
+                &[
+                    "commit",
+                    "-m",
+                    message,
+                    "--author=RepoInsight Test <test@repoinsight.local>",
+                ],
+            );
+        }
+
+        fn commit(&self, files: &[(&str, &str)], message: &str) {
+            Self::write(&self.path, files, message);
+        }
+
+        fn path_str(&self) -> String {
+            self.path.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for TempRepo {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.path).ok();
+        }
+    }
+
+    fn git(dir: &std::path::Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .expect("git command runs");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+    }
+
+    #[test]
+    fn timed_pipeline_reports_honest_counts_and_timings() {
+        let repo = TempRepo::create(&[("src/main.rs", "fn main() {}\n")], "initial");
+        repo.commit(&[("src/lib.rs", "pub fn f() {}\n")], "second");
+        let timed = runtime()
+            .block_on(analyze_local_timed(&repo.path_str()))
+            .expect("timed analysis succeeds");
+        let timings = &timed.timings;
+        assert_eq!(timings.commit_count, 2);
+        assert!(timings.file_count >= 2, "files: {}", timings.file_count);
+        assert!(timings.source_file_count >= 2);
+        for stage in [
+            timings.repository_validation_ms,
+            timings.tree_loading_ms,
+            timings.commit_loading_ms,
+            timings.source_loading_ms,
+            timings.structural_analysis_ms,
+            timings.dataset_construction_ms,
+            timings.total_ms,
+        ] {
+            assert!(stage.is_some(), "every stage timed: {timings:?}");
+        }
+        assert!(
+            timed.analysis.history.total_commits >= 2,
+            "analysis agrees on commits"
+        );
+    }
+
+    #[test]
+    fn timed_pipeline_handles_sparse_repo_without_panicking() {
+        // One commit, no parseable source files: counts stay zero, no panic.
+        let repo = TempRepo::create(&[("notes.bin", "")], "binary only");
+        std::fs::write(repo.path.join("notes.bin"), [0xff, 0xfe, 0x00])
+            .expect("write binary fixture");
+        git(&repo.path, &["add", "."]);
+        git(&repo.path, &["commit", "--amend", "--no-edit"]);
+        let timed = runtime()
+            .block_on(analyze_local_timed(&repo.path_str()))
+            .expect("sparse repo still analyzes");
+        assert_eq!(timed.timings.source_file_count, 0);
+        assert_eq!(timed.timings.commit_count, 1);
+        assert!(timed.timings.total_ms.is_some());
+    }
+
+    #[test]
+    fn timed_pipeline_error_path_fabricates_nothing() {
+        let missing = std::env::temp_dir().join("repoinsight-analyzer-definitely-missing-xyz");
+        let result = runtime().block_on(analyze_local_timed(&missing.to_string_lossy()));
+        // Err carries no timings struct at all: nothing to misread.
+        assert!(result.is_err(), "missing path must fail");
     }
 }

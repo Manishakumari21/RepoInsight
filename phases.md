@@ -491,7 +491,14 @@ Particular attention should be given to precision/recall because false risk warn
 
 # Phase 7 — Prediction Explanation
 
-**Status: ⏳ Planned**
+**Status: ✅ Complete (ML-side: evidence, explanation, historical examples, confidence, recommendations; 30 new tests green, Phase 6 untouched)**
+
+Implemented in `ml/src/repoinsight_ml/` (`evidence.py`, `explanation.py`,
+`historical_examples.py`, `confidence.py`, `recommendations.py`).
+End-to-end entry point `explain_prediction()` returns
+`{prediction, evidence, historical_examples, confidence, recommendations}`.
+Phase 7 is implemented as an ML-side explanation layer. Rust/backend
+prediction integration is handled in Phase 8.
 
 ### Goal
 
@@ -540,12 +547,12 @@ Confidence:
 
 ## Explanation Requirements
 
-* [ ] Separate evidence from prediction
-* [ ] Show important contributing features
-* [ ] Show historical examples
-* [ ] Show predicted impact path
-* [ ] Provide confidence
-* [ ] Avoid unsupported explanations
+* [x] Separate evidence from prediction (`evidence.py` vs `prediction`)
+* [x] Show important contributing features (`top_evidence`, per-model contributions)
+* [x] Show historical examples (`historical_examples.py`, strictly-before-target rows only)
+* [ ] Show predicted impact path (deferred to Phase 8 dashboard graph)
+* [x] Provide confidence (`confidence.py`, documented low/medium/high thresholds)
+* [x] Avoid unsupported explanations (direction `unknown` unless defensible; empty list instead of fabrication)
 
 Optional:
 
@@ -559,7 +566,17 @@ RAG/LLM should remain optional and should **not determine the risk prediction**.
 
 # Phase 8 — Interactive Dashboard
 
-**Status: ⏳ Planned**
+**Status: ✅ Complete (tabbed dashboard: Overview, Predictions, Graph, Files, History + file drawer; predictions served by new backend endpoints; 37 frontend tests green)**
+
+Dashboard (`frontend/src/components/Dashboard.tsx` + `Header.tsx`):
+sections Overview / Predictions / Graph / Files / History, file-details
+drawer with Phase 7 evidence, historical examples, confidence and
+recommendations. Predictions come from `GET
+/api/repositories/{owner}/{repo}/predictions` and `POST
+/api/local/predictions`, computed by `backend/src/prediction/` running the
+exported Phase 6 logistic-regression baseline
+(`backend/src/prediction/weights.json` via
+`ml/scripts/export_baseline_weights.py`) over leakage-safe dataset rows.
 
 ### Goal
 
@@ -569,11 +586,16 @@ Provide a developer-friendly interface for exploring repository behavior.
 
 ## Repository Overview
 
-* [ ] Repository metadata
-* [ ] Source statistics
-* [ ] Complexity overview
-* [ ] Dependency overview
-* [ ] Historical activity
+* [x] Repository metadata
+* [x] Source statistics
+* [x] Complexity overview
+* [x] Dependency overview
+* [x] Historical activity
+* [x] Prediction explorer with search/filter/sort (`Predictions.tsx`)
+* [x] File details with evidence, confidence, recommendations (`FileDrawer.tsx`)
+* [x] Interactive neighborhood graph with relationship types (`RepoGraph.tsx`)
+* [x] File explorer tree (`FileExplorer.tsx`)
+* [x] Commit history view (`HistoryView.tsx`)
 
 ---
 
@@ -600,18 +622,18 @@ Developer selects a file or change target:
 
 ## Repository Exploration
 
-* [ ] File-level analysis
-* [ ] Dependency graph
-* [ ] Change history
-* [ ] Propagation paths
-* [ ] Historical examples
-* [ ] Risk explanation
+* [x] File-level analysis
+* [x] Dependency graph
+* [x] Change history
+* [x] Propagation paths
+* [x] Historical examples
+* [x] Risk explanation
 
 ---
 
 # Phase 9 — Integration, Testing & Benchmarking
 
-**Status: ⏳ Planned**
+**Status: 🚧 In Progress (09.1–09.7 implemented 2026-09-22; large-repo + memory profiling remain open)**
 
 ### Goal
 
@@ -621,44 +643,106 @@ Turn the research prototype into a reliable working system.
 
 ## Backend
 
-* [ ] API integration tests
-* [ ] GitHub error handling
-* [ ] Large repository testing
-* [ ] Rate-limit handling
-* [ ] Request timeout handling
-* [ ] Bounded resource usage
+* [x] API integration tests — error-status mapping covered by `main.rs` unit tests (`local_path_errors_map_to_client_statuses`, `github_api_errors_map_to_gateway_statuses`, `github_rate_limit_maps_to_429`); 91 backend tests green
+* [x] GitHub error handling — `GithubError` → 404/401/429/502 mapping in `status_code_from`, retries + rate-limit waits in `github/client.rs`
+* [ ] Large repository testing — NOT DONE (largest exercised: 74-file/14-commit self repo)
+* [x] Rate-limit handling — 429 mapping + client-side backoff; 502 hint in frontend when backend unreachable
+* [x] Request timeout handling — 60s reqwest timeout + transient retries
+* [x] Bounded resource usage — analysis cache cap, 1MB blob limit, 8-way bounded concurrency, 300-entry timeline cap
 
 ---
 
 ## ML
 
-* [ ] Reproducible training pipeline
-* [ ] Dataset versioning
-* [ ] Model versioning
-* [ ] Evaluation reports
-* [ ] Error analysis
-* [ ] Benchmark datasets
+* [x] Reproducible training pipeline — `train_baseline` (fixed seed 42), `compare_models`, `evaluate_time_windows_from_path`
+* [x] Dataset versioning — `ml/data/dataset.jsonl` (347 rows), `ml/data/repoinsight-self.jsonl` (491 rows), `ml/data/repo-ranger.jsonl` (111 rows); provenance recorded in `backend/src/prediction/weights.json`
+* [x] Model versioning — `model_name` + `calibrated` in weights.json and prediction responses
+* [x] Evaluation reports — `ml/benchmark_results.json` (9 records: 3 repos × 3 models, real measurements, null where undefined)
+* [x] Error analysis — TP/FP/TN/FN recorded per benchmark record via `ml/scripts/benchmark.py`
+* [x] Benchmark datasets — 3 real local/GitHub-derived datasets (see `ml/scripts/benchmark.py --help`)
 
 ---
 
 ## Performance
 
-Measure:
+Measured (benchmark runner records per-repo/per-model timings):
 
-* Repository collection time
-* Source parsing time
-* History processing time
-* Feature-generation time
-* Prediction latency
-* Memory usage
+* Repository collection time — via analysis endpoint latency (not yet systematically recorded)
+* Source parsing time — NOT MEASURED separately
+* History processing time — NOT MEASURED separately
+* Feature-generation time — recorded as `analysis_time_seconds` (load + split + featurize)
+* Prediction latency — recorded as `prediction_time_seconds` (fit + evaluate)
+* Memory usage — NOT MEASURED
 
 Test with:
 
 ```text
-Small repository
-Medium repository
-Large repository
+Small repository — Repo_Ranger (14 files, 19 commits, 111 rows) ✅ measured
+Medium repository — RepoInsight self (74 files, 14 commits, 491 rows) ✅ measured
+Large repository — NOT DONE
 ```
+
+---
+
+## Phase 9 implementation notes (2026-09-22)
+
+* Recall=N/A root cause (rework detector): `recall(0, 0)` → `None` because all 6 hand-reviewed labels are `actual_rework=false` — mathematically expected, covered by `zero_denominators_yield_none` test, and the dashboard already explains it ("Recall is n/a: the sample contains no actual rework"). ML `evaluate_model` can never emit recall N/A (`zero_division=0`); only ROC-AUC/PR-AUC are `None` on single-class splits.
+* 23-feature pipeline verified: `ml/src/repoinsight_ml/features.py` (`9 structural + 6 historical + 8 temporal`); backend API structs carry the same 23 numerics plus `file_path`.
+* Frontend: `analysisErrorHint` exported + tested (`errorHints.test.ts`); 45 frontend tests green. Responsive verified by breakpoint inspection (767/900/1024/1100px); no redesign performed.
+
+## Phase 9 implementation notes — end-to-end instrumentation (2026-09-22)
+
+* Completed: `AnalysisTimings` (`backend/src/timing.rs`) with per-stage
+  milliseconds (validation, tree/commit/source loading, structural
+  analysis, dataset construction, total) plus file/commit/source/row
+  counts; stages stay `None` until complete so errors never fabricate timings.
+* Completed: `POST /api/local/timings` diagnostic endpoint running the
+  real local pipeline and returning repository metadata with timings.
+  Dataset NDJSON and analysis response contracts are unchanged (98 backend
+  tests green, incl. temp-repo integration tests; no Axum data used in tests).
+* Completed: CPU-bound/blocking local work (working-tree reads,
+  tree-sitter analysis, dataset construction, prediction scoring) isolated
+  via `spawn_blocking`; lightweight requests such as `GET /health` no
+  longer share async workers with long analyses. No job queues added.
+* Completed: `scripts/measure_local_analysis.py --repo PATH --output FILE`
+  external diagnostic wrapper (manual use only, never auto-run on large repos).
+* Notes: end-to-end repository-ingestion timings are now available and
+  remain separate from ML benchmark timings (`ml/benchmark_results.json`
+  still covers load/split/featurize + fit/evaluate only).
+* Notes: large-repository peak-memory measurements require external
+  profiling (`/usr/bin/time -v`); in-process RSS is intentionally not
+  implemented (platform-dependent). The earlier ~240 MB Axum observation
+  was uncontrolled and is NOT recorded as an official measurement.
+* Still open: large-repository test, per-stage parse/history timing
+  split-out, memory profiling.
+
+## Phase 9 implementation notes — research evaluation (2026-09-22)
+
+* Completed 9.6 Multi-Repository Benchmarking: `ml/scripts/benchmark.py`
+  (+`--envelope` run metadata, positive/test-positive rates) over 4 real
+  datasets → `ml/multi_repo_benchmark.json` (12 records: 4 repos × 3
+  models). Existing `ml/benchmark_results.json` untouched.
+* Completed 9.7 Model Comparison: `ml/scripts/run_model_comparison.py` →
+  `ml/model_comparison.json` (repository, model, precision/recall/F1,
+  ROC-AUC, PR-AUC, prediction time + interpretation note).
+* Completed 9.8 Ablation Testing: `ml/src/repoinsight_ml/ablation.py`
+  (canonical groups structural 9 / historical 6 / temporal 8; configs
+  all/single/pairs, LR baseline, one fixed chronological split) +
+  `ml/scripts/run_ablation.py` → `ml/ablation_results.json` (28 records).
+* Completed 9.9 Error Analysis: `ml/error_analysis.py` →
+  `ml/error_analysis.json` (per repo/model: FP/FN counts + rates, test
+  positive rate, ≤25 FP + ≤25 FN examples with commit/file/probability/
+  feature context, observed per-group feature means; associational
+  language only).
+* Methodology notes: repositories are evaluated independently;
+  chronological commit-granular splits prevent temporal leakage (same rows
+  back every ablation config); model metrics are reported without ranking;
+  ablation shows how performance changes when groups are removed; error
+  analysis reports observed FP/FN patterns without causal claims.
+* Class imbalance: axum positive rate 0.0097 (test 0.0060) — precision
+  ~0.01–0.02 with recall up to 0.60, PR-AUC ~0.02–0.06 while ROC-AUC
+  ~0.58–0.72. Accuracy is never reported; interpretation uses
+  positive_rate/precision/recall/PR-AUC. Training algorithms unchanged.
 
 ---
 

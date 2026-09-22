@@ -18,6 +18,12 @@ dist/
 # ML artifacts (generated, never commit)
 ml/artifacts/
 
+# Generated ML datasets
+ml/data/*.jsonl
+
+# Python package metadata
+ml/src/repoinsight_ml.egg-info/
+
 # OS / Editor
 .DS_Store
 .vscode/

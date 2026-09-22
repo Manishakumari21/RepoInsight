@@ -1,6 +1,9 @@
 export interface RepositoryAnalysis {
   repository: RepositoryInfo
   source: SourceAnalysis
+  structural_features: StructuralFeatures[]
+  historical_features: HistoricalFeatures[]
+  temporal_features: TemporalFeatures[]
   complexity: ComplexityAnalysis
   history: HistoryAnalysis
   dependencies: DependencyAnalysis
@@ -14,6 +17,86 @@ export interface RepositoryAnalysis {
   examples: HistoricalExamples
   hotspots: Hotspot[]
   difficulty: DifficultyScore
+}
+
+export interface StructuralFeatures {
+  file_path: string
+  file_size_bytes: number
+  lines_of_code: number
+  function_count: number
+  cyclomatic_complexity: number
+  max_nesting_depth: number
+  incoming_dependencies: number
+  outgoing_dependencies: number
+  coupling: number
+  num_dependents: number
+}
+
+export interface HistoricalFeatures {
+  file_path: string
+  previous_change_count: number
+  historical_churn: number
+  contributor_count: number
+  time_since_last_change_secs: number | null
+  recent_change_frequency: number
+  historical_cochange_frequency: number
+}
+
+export interface TemporalFeatures {
+  file_path: string
+  recent_change_sequence_count: number
+  previous_files_changed_count: number
+  change_window_count: number
+  avg_change_delay_seconds: number | null
+  change_order_count: number
+  propagation_frequency: number
+  followup_frequency: number
+  historical_rework_frequency: number
+}
+
+export interface FeatureEvidence {
+  feature: string
+  group: string
+  description: string
+  raw_value: number | null
+  transformed_value: number | null
+  contribution: number
+  direction: 'supports' | 'contradicts' | 'unknown'
+}
+
+export interface PredictionHistoricalExample {
+  commit_sha: string
+  timestamp: number | null
+  date: string | null
+  file_path: string
+  event_type: string
+  related_files: string[]
+}
+
+export interface FilePrediction {
+  file_path: string
+  probability: number
+  label: number
+  confidence_level: 'low' | 'medium' | 'high'
+  calibrated: boolean
+  top_evidence: FeatureEvidence[]
+  supporting_evidence: FeatureEvidence[]
+  contradicting_evidence: FeatureEvidence[]
+  historical_examples: PredictionHistoricalExample[]
+  recommendations: string[]
+}
+
+export interface PredictionModelInfo {
+  name: string
+  calibrated: boolean
+  threshold: number
+  available_models: string[]
+  training: string
+}
+
+export interface PredictionsResponse {
+  model: PredictionModelInfo
+  predictions: FilePrediction[]
 }
 
 export interface RepositoryInfo {
