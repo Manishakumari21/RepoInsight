@@ -68,6 +68,70 @@ export function OverviewPage({
     [analysis],
   )
 
+  const signals = useMemo(
+    () => [
+      {
+        key: 'complexity',
+        label: 'Avg complexity',
+        value: analysis.complexity.average_complexity.toFixed(1),
+        sub: `${formatNumber(analysis.complexity.complex_files)} complex files`,
+      },
+      {
+        key: 'churn',
+        label: 'Total churn',
+        value: formatNumber(analysis.history.total_churn),
+        sub: `${formatNumber(analysis.history.total_additions)} additions`,
+      },
+      {
+        key: 'coupling',
+        label: 'Dependencies',
+        value: formatNumber(analysis.dependencies.total_dependencies),
+        sub: `${formatNumber(analysis.dependencies.connected_files)} connected files`,
+      },
+      {
+        key: 'predictions',
+        label: 'Flagged files',
+        value: predictionsAvailable ? formatNumber(distribution.positive) : '—',
+        sub: predictionsAvailable ? `of ${formatNumber(predictions.length)} analyzed` : 'model pending',
+      },
+    ],
+    [analysis, distribution, predictionsAvailable, predictions.length],
+  )
+
+  const recommended = useMemo(() => {
+    const items: { title: string; sub: string; file: string }[] = []
+    const topPair = [...(analysis.cochange.pairs ?? [])].sort(
+      (a, b) => b.count - a.count,
+    )[0]
+    if (topPair) {
+      items.push({
+        title: `${topPair.file_a} has strong historical coupling with ${topPair.file_b}`,
+        sub: `Changed together ${formatNumber(topPair.count)}× — inspect either file for evidence.`,
+        file: topPair.file_a,
+      })
+    }
+    const topRisk = [...predictions]
+      .filter((item) => item.label === 1)
+      .sort((a, b) => b.probability - a.probability)[0]
+    if (topRisk) {
+      items.push({
+        title: `${topRisk.file_path} is flagged at ${(topRisk.probability * 100).toFixed(0)}% rework risk`,
+        sub: 'Open its prediction to see why, then check the evidence.',
+        file: topRisk.file_path,
+      })
+    }
+    const latest = [...(analysis.timeline.entries ?? [])].pop()
+    const recentFile = latest?.files?.[0]
+    if (recentFile) {
+      items.push({
+        title: `${recentFile} changed most recently`,
+        sub: `${latest?.message || '(no message)'} — see what it touched.`,
+        file: recentFile,
+      })
+    }
+    return items.slice(0, 3)
+  }, [analysis, predictions])
+
   const totalBands = Math.max(distribution.high + distribution.medium + distribution.low, 1)
   const bandRows = [
     { key: 'high', label: 'High confidence', value: distribution.high, color: 'var(--danger)' },
@@ -108,6 +172,24 @@ export function OverviewPage({
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="section-block">
+        <div className="section-head">
+          <h2>Repository Signals</h2>
+          <p>Complexity, change frequency, coupling, prediction activity</p>
+        </div>
+        <Panel title="Signals" hint="Observed repository measurements">
+          <div className="stat-grid">
+            {signals.map((signal) => (
+              <div className="stat" key={signal.key}>
+                <div className="stat-value tnum">{signal.value}</div>
+                <div className="stat-label">{signal.label}</div>
+                <div className="stat-sub">{signal.sub}</div>
+              </div>
+            ))}
+          </div>
+        </Panel>
       </div>
 
       <div className="section-block">
@@ -153,6 +235,41 @@ export function OverviewPage({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <div className="section-block">
+        <div className="section-head">
+          <h2>Recommended Investigation</h2>
+          <p>Where to look next, from real repository data</p>
+        </div>
+        <Panel title="Investigate Next" hint="Click a card to open the file">
+          {recommended.length === 0 ? (
+            <p className="history-note">
+              Not enough history yet to recommend an investigation.
+            </p>
+          ) : (
+            <div className="attention-grid">
+              {recommended.map((item) => (
+                <article key={item.title} className="attention-card">
+                  <div className="attention-top">
+                    <span className="attention-file">{item.file}</span>
+                  </div>
+                  <p className="attention-why">{item.title}</p>
+                  <p className="history-note">{item.sub}</p>
+                  <div className="attention-actions">
+                    <button
+                      type="button"
+                      className="flow-ghost"
+                      onClick={() => onOpenFile(item.file)}
+                    >
+                      Open file →
+                    </button>
+                  </div>
+                </article>
+              ))}
             </div>
           )}
         </Panel>
@@ -246,7 +363,14 @@ export function OverviewPage({
                 {recentCommits.map((entry) => (
                   <li key={entry.sha} className="activity-row">
                     <code>{shortSha(entry.sha)}</code>
-                    <span className="activity-msg">{entry.message || '(no message)'}</span>
+                    <button
+                      type="button"
+                      className="link-button activity-msg"
+                      onClick={() => onSection('history')}
+                      title="Open history timeline"
+                    >
+                      {entry.message || '(no message)'}
+                    </button>
                     <span className="activity-sub">
                       {entry.author ?? 'unknown'} · {formatDate(entry.date)} · {entry.files.length} files
                     </span>

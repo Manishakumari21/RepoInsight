@@ -7,10 +7,12 @@ const LABELS = new Map<DashboardSection, string>(
 
 export function Breadcrumbs({
   section,
+  subLabel,
   file,
   onSection,
 }: {
   section: DashboardSection
+  subLabel?: string
   file: string | null
   onSection: (section: DashboardSection) => void
 }) {
@@ -25,11 +27,25 @@ export function Breadcrumbs({
           <button type="button" onClick={() => onSection(section)}>
             {LABELS.get(section) ?? section}
           </button>
+          {subLabel && (
+            <>
+              <span className="crumb-sep" aria-hidden="true">›</span>
+              <span className="crumb-sub">{subLabel}</span>
+            </>
+          )}
           <span className="crumb-sep" aria-hidden="true">›</span>
           <span className="crumb-current crumb-file">{file}</span>
         </>
       ) : (
-        <span className="crumb-current">{LABELS.get(section) ?? section}</span>
+        <>
+          <span className="crumb-current">{LABELS.get(section) ?? section}</span>
+          {subLabel && (
+            <>
+              <span className="crumb-sep" aria-hidden="true">›</span>
+              <span className="crumb-sub">{subLabel}</span>
+            </>
+          )}
+        </>
       )}
     </nav>
   )

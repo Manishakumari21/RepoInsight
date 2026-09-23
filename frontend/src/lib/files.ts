@@ -12,7 +12,7 @@ export interface FileStats {
   size: number
 }
 
-/** Union of analyzed file paths: parsed sources, hotspots, history. */
+
 export function collectFilePaths(analysis: RepositoryAnalysis): string[] {
   const paths = new Set<string>()
   for (const item of analysis.structural_features ?? []) paths.add(item.file_path)
@@ -54,7 +54,7 @@ export interface FileTreeNode {
   isFile: boolean
 }
 
-/** Directory tree built from file paths, deterministic order. */
+
 export function buildFileTree(paths: string[]): FileTreeNode[] {
   const root: FileTreeNode[] = []
   const dirs = new Map<string, FileTreeNode>()
@@ -98,7 +98,7 @@ export function buildFileTree(paths: string[]): FileTreeNode[] {
   return root
 }
 
-/** Per-file change counts from timeline entries. */
+
 export function changeCounts(analysis: RepositoryAnalysis): Map<string, number> {
   const counts = new Map<string, number>()
   for (const entry of analysis.timeline.entries ?? []) {
@@ -107,4 +107,56 @@ export function changeCounts(analysis: RepositoryAnalysis): Map<string, number> 
     }
   }
   return counts
+}
+
+export type FileKind = 'test' | 'config' | 'source'
+
+export function fileKind(path: string): FileKind {
+  const lower = path.toLowerCase()
+  const segments = lower.split('/')
+  const file = segments.pop() ?? lower
+  if (
+    lower.includes('/test/') ||
+    lower.includes('/tests/') ||
+    lower.includes('__tests__') ||
+    file.includes('.test.') ||
+    file.includes('_test.') ||
+    file.startsWith('test_') ||
+    file === 'conftest.py'
+  ) {
+    return 'test'
+  }
+  if (
+    file.endsWith('.yml') ||
+    file.endsWith('.yaml') ||
+    file.endsWith('.toml') ||
+    file.endsWith('.ini') ||
+    file.startsWith('.env') ||
+    lower.includes('/config/') ||
+    lower.includes('/settings/') ||
+    file === 'config' ||
+    file === 'settings'
+  ) {
+    return 'config'
+  }
+  return 'source'
+}
+
+export interface RelatedFile {
+  path: string
+  count: number
+}
+
+export function cochangePartners(
+  analysis: RepositoryAnalysis,
+  path: string,
+  limit = 5,
+): RelatedFile[] {
+  const partners: RelatedFile[] = []
+  for (const pair of analysis.cochange?.pairs ?? []) {
+    if (pair.file_a === path) partners.push({ path: pair.file_b, count: pair.count })
+    else if (pair.file_b === path) partners.push({ path: pair.file_a, count: pair.count })
+  }
+  partners.sort((a, b) => b.count - a.count || a.path.localeCompare(b.path))
+  return partners.slice(0, Math.max(limit, 1))
 }

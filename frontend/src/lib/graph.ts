@@ -1,4 +1,17 @@
 import type { PropagationEdge } from '../types'
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceSimulation,
+  type SimulationNodeDatum,
+} from 'd3-force'
+import { fileKind } from './files'
+
+interface CircleSimNode extends SimulationNodeDatum {
+  id: string
+  degree: number
+}
 
 export interface GraphNode {
   id: string
@@ -17,9 +30,20 @@ export interface GraphData {
   links: GraphLink[]
 }
 
-export type EdgeFilter = 'all' | 'dependency' | 'temporal' | 'cochange'
+export type EdgeFilter =
+  | 'all'
+  | 'dependency'
+  | 'temporal'
+  | 'cochange'
+  | 'prediction'
+  | 'tests'
+  | 'config'
 
-export function edgeMatches(edge: PropagationEdge, filter: EdgeFilter): boolean {
+export function edgeMatches(
+  edge: PropagationEdge,
+  filter: EdgeFilter,
+  predicted?: Set<string>,
+): boolean {
   switch (filter) {
     case 'dependency':
       return edge.dependency
@@ -27,16 +51,21 @@ export function edgeMatches(edge: PropagationEdge, filter: EdgeFilter): boolean 
       return edge.temporal
     case 'cochange':
       return edge.cochange
+    case 'prediction':
+      return (
+        predicted !== undefined &&
+        (predicted.has(edge.source) || predicted.has(edge.target))
+      )
+    case 'tests':
+      return fileKind(edge.source) === 'test' || fileKind(edge.target) === 'test'
+    case 'config':
+      return fileKind(edge.source) === 'config' || fileKind(edge.target) === 'config'
     case 'all':
       return true
   }
 }
 
-/**
- * Focused neighborhood around `focus`: the focus node plus nodes reachable
- * within `depth` hops. Bounded by `maxNodes` (highest-strength links win)
- * so large repositories stay usable.
- */
+
 export function buildNeighborhood(
   edges: PropagationEdge[],
   focus: string | null,
@@ -44,8 +73,9 @@ export function buildNeighborhood(
   depth: number,
   filter: EdgeFilter,
   maxNodes: number,
+  predicted?: Set<string>,
 ): GraphData {
-  const relevant = edges.filter((edge) => edgeMatches(edge, filter))
+  const relevant = edges.filter((edge) => edgeMatches(edge, filter, predicted))
   if (focus === null) {
     const degree = new Map<string, number>()
     for (const edge of relevant) {
@@ -118,7 +148,7 @@ function materialize(edges: PropagationEdge[], keep: Set<string>): GraphData {
   return { nodes, links }
 }
 
-/** Circular layout positions, deterministic for a given node order. */
+
 export function layoutCircle(
   nodes: GraphNode[],
   width: number,
@@ -127,25 +157,38 @@ export function layoutCircle(
   const positions = new Map<string, { x: number; y: number }>()
   const cx = width / 2
   const cy = height / 2
-  const radius = Math.max(Math.min(width, height) / 2 - 40, 20)
+  if (nodes.length === 0) return positions
   if (nodes.length === 1) {
     positions.set(nodes[0].id, { x: cx, y: cy })
     return positions
   }
-  nodes.forEach((node, index) => {
+  const radius = Math.max(Math.min(width, height) / 2 - 40, 20)
+
+  const simNodes: CircleSimNode[] = nodes.map((node, index) => {
     const angle = (2 * Math.PI * index) / nodes.length - Math.PI / 2
-    positions.set(node.id, {
+    return {
+      id: node.id,
+      degree: node.degree,
       x: cx + radius * Math.cos(angle),
       y: cy + radius * Math.sin(angle),
-    })
+    }
   })
+  const simulation = forceSimulation(simNodes)
+    .force('center', forceCenter(cx, cy))
+    .force(
+      'collide',
+      forceCollide<CircleSimNode>((d) => 14 + Math.min(d.degree, 8)),
+    )
+    .randomSource(() => 0.5)
+    .stop()
+  for (let tick = 0; tick < 200; tick += 1) simulation.tick()
+  for (const node of simNodes) {
+    positions.set(node.id, { x: node.x ?? cx, y: node.y ?? cy })
+  }
   return positions
 }
 
-/**
- * Center-node layout: `focus` sits in the middle, its neighbors form a
- * ring around it. Makes the selected file the visual center of the graph.
- */
+
 export function layoutRadial(
   nodes: GraphNode[],
   links: GraphLink[],
@@ -156,7 +199,7 @@ export function layoutRadial(
   const positions = new Map<string, { x: number; y: number }>()
   const cx = width / 2
   const cy = height / 2
-  positions.set(focus, { x: cx, y: cy })
+  if (nodes.length === 0) return positions
   const neighborIds = new Set<string>()
   for (const link of links) {
     if (link.source === focus) neighborIds.add(link.target)
@@ -164,25 +207,76 @@ export function layoutRadial(
   }
   const ring = [...neighborIds].sort((a, b) => a.localeCompare(b))
   const radius = Math.max(Math.min(width, height) / 2 - 56, 40)
+  const rest = nodes
+    .map((node) => node.id)
+    .filter((id) => id !== focus && !neighborIds.has(id))
+    .sort((a, b) => a.localeCompare(b))
+
+
+  const seed = new Map<string, { x: number; y: number }>()
+  seed.set(focus, { x: cx, y: cy })
   ring.forEach((id, index) => {
     const angle = (2 * Math.PI * index) / ring.length - Math.PI / 2
-    positions.set(id, {
+    seed.set(id, {
       x: cx + radius * Math.cos(angle),
       y: cy + radius * Math.sin(angle),
     })
   })
-  // Second-hop leftovers share the outer area deterministically.
-  const rest = nodes
-    .map((node) => node.id)
-    .filter((id) => !positions.has(id))
-    .sort((a, b) => a.localeCompare(b))
   rest.forEach((id, index) => {
     const angle = (2 * Math.PI * index) / rest.length - Math.PI / 2
-    positions.set(id, {
+    seed.set(id, {
       x: cx + (radius + 56) * Math.cos(angle),
       y: cy + (radius + 56) * Math.sin(angle),
     })
   })
+
+  interface SimNode extends SimulationNodeDatum {
+    id: string
+  }
+  const simNodes: SimNode[] = nodes.map((node) => {
+    const point = seed.get(node.id) ?? { x: cx, y: cy }
+    const fixed = node.id === focus
+    return {
+      id: node.id,
+      x: point.x,
+      y: point.y,
+      ...(fixed ? { fx: cx, fy: cy } : {}),
+    }
+  })
+  const simLinks = links
+    .filter(
+      (link) =>
+        simNodes.some((node) => node.id === link.source) &&
+        simNodes.some((node) => node.id === link.target),
+    )
+    .map((link) => ({ ...link }))
+  const simulation = forceSimulation(simNodes)
+    .force('center', forceCenter(cx, cy))
+    .force('collide', forceCollide<SimNode>(28))
+    .force(
+      'link',
+      forceLink<SimNode, { source: string; target: string }>(simLinks)
+        .id((node) => node.id)
+        .distance(120)
+        .strength(0.4),
+    )
+    .randomSource(() => 0.5)
+    .stop()
+  for (let tick = 0; tick < 200; tick += 1) simulation.tick()
+  for (const node of simNodes) {
+    if (node.id === focus) {
+      positions.set(node.id, { x: cx, y: cy })
+    } else {
+      positions.set(node.id, { x: node.x ?? cx, y: node.y ?? cy })
+    }
+  }
+
+  for (const node of nodes) {
+    if (!positions.has(node.id)) {
+      const point = seed.get(node.id) ?? { x: cx, y: cy }
+      positions.set(node.id, point)
+    }
+  }
   return positions
 }
 
@@ -194,11 +288,12 @@ export interface NodeSignalCounts {
   neighbors: { id: string; signals: string[]; direction: 'out' | 'in' }[]
 }
 
-/** Per-signal neighbor breakdown for one node, from directed edges. */
+
 export function nodeSignalCounts(
   edges: PropagationEdge[],
   node: string,
   filter: EdgeFilter,
+  predicted?: Set<string>,
 ): NodeSignalCounts {
   const counts: NodeSignalCounts = {
     dependenciesOut: 0,
@@ -209,7 +304,7 @@ export function nodeSignalCounts(
   }
   const seen = new Set<string>()
   for (const edge of edges) {
-    if (!edgeMatches(edge, filter)) continue
+    if (!edgeMatches(edge, filter, predicted)) continue
     const isSource = edge.source === node
     const isTarget = edge.target === node
     if (!isSource && !isTarget) continue

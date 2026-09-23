@@ -291,6 +291,113 @@ export interface DifficultyScore {
   level: string
 }
 
+export interface RippleExample {
+  commit_sha: string
+  timestamp: number | null
+  date: string | null
+  event_type: string
+  related_files: string[]
+}
+
+export interface RippleCandidate {
+  file: string
+  probability: number
+  rank: number
+  reasons: string[]
+  historical_examples: RippleExample[]
+}
+
+export interface RipplePath {
+  nodes: string[]
+  edge_scores: number[]
+  confidence: number
+  evidence: string[]
+}
+
+export interface MissingImpact {
+  file: string
+  probability: number
+  message: string
+}
+
+export interface RippleModelInfo {
+  name: string
+  calibrated: boolean
+  threshold: number
+  weights: Record<string, number>
+  training: string
+}
+
+export interface RippleResponse {
+  source: string
+  candidates: RippleCandidate[]
+  ripple_paths: RipplePath[]
+  missing_impact: MissingImpact[]
+  model: RippleModelInfo
+}
+
+export interface ChangeIntent {
+  operation: string
+  domains: string[]
+  terms: string[]
+  current_technology: string | null
+  target_technology: string | null
+}
+
+export interface ImpactItem {
+  path: string
+  level: 'high' | 'medium' | 'low'
+  score: number
+  categories: string[]
+  evidence: string[]
+}
+
+export interface Capability {
+  name: string
+  files: string[]
+}
+
+export interface ChecklistItem {
+  label: string
+  files: string[]
+}
+
+export interface ImpactGraphNode {
+  id: string
+  kind: 'change' | 'capability' | 'file'
+  label: string
+  level: string | null
+}
+
+export interface ImpactGraphEdge {
+  from: string
+  to: string
+  evidence: string
+}
+
+export interface ImpactGraph {
+  nodes: ImpactGraphNode[]
+  edges: ImpactGraphEdge[]
+}
+
+export interface ImpactModelInfo {
+  name: string
+  calibrated: boolean
+  threshold: number
+  weights: Record<string, number>
+  training: string
+}
+
+export interface ImpactResponse {
+  change_description: string
+  intent: ChangeIntent
+  impact: ImpactItem[]
+  capabilities: Capability[]
+  checklist: ChecklistItem[]
+  graph: ImpactGraph
+  model: ImpactModelInfo
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`

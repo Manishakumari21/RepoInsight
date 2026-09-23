@@ -1,6 +1,6 @@
 import type { FilePrediction, RepositoryAnalysis } from '../types'
-import { formatBytes, formatNumber, shortSha } from '../types'
-import { buildFileStats } from '../lib/files'
+import { formatBytes, formatDate, formatNumber, shortSha } from '../types'
+import { buildFileStats, cochangePartners } from '../lib/files'
 
 function directionMark(direction: string): string {
   if (direction === 'supports') return '▲'
@@ -15,6 +15,7 @@ export function FileDrawer({
   onClose,
   onOpenFile,
   onOpenGraph,
+  onGoHistory,
 }: {
   path: string
   prediction: FilePrediction | null
@@ -22,11 +23,22 @@ export function FileDrawer({
   onClose: () => void
   onOpenFile: (path: string) => void
   onOpenGraph?: (path: string) => void
+  onGoHistory?: () => void
 }) {
   const stats = buildFileStats(analysis)[path]
   const structural = analysis.structural_features?.find(
     (item) => item.file_path === path,
   )
+  const related = cochangePartners(analysis, path, 5)
+  const relatedPeak = related.reduce((max, item) => Math.max(max, item.count), 1)
+  const dependencies = (analysis.propagation?.edges ?? [])
+    .filter((edge) => edge.source === path || edge.target === path)
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, 6)
+  const activity = (analysis.timeline?.entries ?? []).filter((entry) =>
+    (entry.files ?? []).includes(path),
+  )
+  const recentActivity = [...activity].reverse().slice(0, 3)
   const verdict = prediction
     ? prediction.label === 1
       ? 'Needs follow-up'
@@ -163,6 +175,64 @@ export function FileDrawer({
           </section>
         )}
 
+        <section aria-label="Predicted changes">
+          <h3 className="drawer-section">Predicted changes</h3>
+          {related.length === 0 ? (
+            <p className="history-note">
+              No files have repeatedly changed alongside this one.
+            </p>
+          ) : (
+            <ul className="related-list">
+              {related.map((item) => (
+                <li key={item.path} className="related-row">
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => onOpenFile(item.path)}
+                  >
+                    {item.path}
+                  </button>
+                  <span className="related-bar" aria-hidden="true">
+                    <span
+                      className="related-fill"
+                      style={{ width: `${(item.count / relatedPeak) * 100}%` }}
+                    />
+                  </span>
+                  <span className="tnum muted">×{item.count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section aria-label="Dependencies">
+          <h3 className="drawer-section">Dependencies</h3>
+          {dependencies.length === 0 ? (
+            <p className="history-note">No recorded relationships for this file.</p>
+          ) : (
+            <ul className="graph-neighbors">
+              {dependencies.map((edge) => {
+                const other = edge.source === path ? edge.target : edge.source
+                const direction = edge.source === path ? 'out' : 'in'
+                return (
+                  <li key={`${edge.source}-${edge.target}`}>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => onOpenFile(other)}
+                    >
+                      {other}
+                    </button>{' '}
+                    <span className="muted">
+                      · {direction} · strength {edge.strength}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+
         <section aria-label="Historical evidence">
           <h3 className="drawer-section">What happened before</h3>
           <p className="history-note" style={{ marginTop: 0 }}>
@@ -209,6 +279,39 @@ export function FileDrawer({
             </ul>
           </section>
         )}
+
+        <section aria-label="Historical activity">
+          <h3 className="drawer-section">Historical activity</h3>
+          {activity.length === 0 ? (
+            <p className="history-note">This file appears in no recorded commits.</p>
+          ) : (
+            <>
+              <p className="history-note" role="status">
+                Changed in {formatNumber(activity.length)}{' '}
+                {activity.length === 1 ? 'commit' : 'commits'}.
+              </p>
+              <ul className="graph-neighbors">
+                {recentActivity.map((entry) => (
+                  <li key={entry.sha}>
+                    <code>{shortSha(entry.sha)}</code>{' '}
+                    <span className="muted">
+                      {entry.message || '(no message)'} · {formatDate(entry.date)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {onGoHistory && (
+                <button
+                  type="button"
+                  className="flow-ghost"
+                  onClick={onGoHistory}
+                >
+                  View full history →
+                </button>
+              )}
+            </>
+          )}
+        </section>
 
         <section aria-label="File facts">
           <h3 className="drawer-section">File at a glance</h3>

@@ -25,6 +25,7 @@ export function RepoGraph({
   onOpenFile,
   onViewPrediction,
   onGoHistory,
+  predicted,
 }: {
   edges: PropagationEdge[]
   files: string[]
@@ -33,6 +34,7 @@ export function RepoGraph({
   onOpenFile: (path: string) => void
   onViewPrediction?: (path: string) => void
   onGoHistory?: () => void
+  predicted?: Set<string>
 }) {
   const [query, setQuery] = useState('')
   const [edgeFilter, setEdgeFilter] = useState<EdgeFilter>('all')
@@ -42,8 +44,8 @@ export function RepoGraph({
   const drag = useRef<{ x: number; y: number } | null>(null)
 
   const data = useMemo(
-    () => buildNeighborhood(edges, focus, files, depth, edgeFilter, MAX_NODES),
-    [edges, focus, files, depth, edgeFilter],
+    () => buildNeighborhood(edges, focus, files, depth, edgeFilter, MAX_NODES, predicted),
+    [edges, focus, files, depth, edgeFilter, predicted],
   )
   const positions = useMemo(
     () =>
@@ -59,8 +61,8 @@ export function RepoGraph({
   }, [query, files])
 
   const counts = useMemo(
-    () => (focus ? nodeSignalCounts(edges, focus, edgeFilter) : null),
-    [edges, focus, edgeFilter],
+    () => (focus ? nodeSignalCounts(edges, focus, edgeFilter, predicted) : null),
+    [edges, focus, edgeFilter, predicted],
   )
 
   const selected = focus ? data.nodes.find((node) => node.id === focus) : null
@@ -163,9 +165,12 @@ export function RepoGraph({
               aria-label="Filter graph by relationship type"
             >
               <option value="all">All</option>
+              <option value="prediction">Prediction</option>
               <option value="dependency">Dependency</option>
               <option value="temporal">Temporal</option>
               <option value="cochange">Co-change</option>
+              <option value="tests">Tests</option>
+              <option value="config">Configuration</option>
             </select>
           </label>
           <label className="filter-field">

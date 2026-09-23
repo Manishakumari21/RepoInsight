@@ -22,6 +22,24 @@ describe('edgeMatches', () => {
     expect(edges.filter((e) => edgeMatches(e, 'cochange')).length).toBe(2)
     expect(edges.filter((e) => edgeMatches(e, 'all')).length).toBe(4)
   })
+
+  it('filters prediction edges to the predicted set', () => {
+    const predicted = new Set(['a.ts'])
+    expect(edges.filter((e) => edgeMatches(e, 'prediction', predicted)).length).toBe(2)
+    expect(edges.filter((e) => edgeMatches(e, 'prediction', new Set()))).toEqual([])
+    expect(edges.filter((e) => edgeMatches(e, 'prediction'))).toEqual([])
+  })
+
+  it('filters test and config files by path kind', () => {
+    const kindEdges: PropagationEdge[] = [
+      { source: 'src/auth.ts', target: 'tests/auth.test.ts', dependency: true, temporal: false, cochange: false, strength: 2 },
+      { source: 'src/auth.ts', target: 'config/auth.yml', dependency: true, temporal: false, cochange: false, strength: 1 },
+      { source: 'src/a.ts', target: 'src/b.ts', dependency: true, temporal: false, cochange: false, strength: 1 },
+    ]
+    expect(kindEdges.filter((e) => edgeMatches(e, 'tests')).length).toBe(1)
+    expect(kindEdges.filter((e) => edgeMatches(e, 'config')).length).toBe(1)
+    expect(kindEdges.filter((e) => edgeMatches(e, 'all')).length).toBe(3)
+  })
 })
 
 describe('buildNeighborhood', () => {
@@ -76,7 +94,7 @@ describe('layoutRadial', () => {
 describe('nodeSignalCounts', () => {
   it('splits dependency direction and counts signals', () => {
     const counts = nodeSignalCounts(edges, 'b.ts', 'all')
-    // b.ts is target of a→b (dependent in) and source of b→c (temporal only)
+
     expect(counts.dependenciesOut).toBe(0)
     expect(counts.dependentsIn).toBe(1)
     expect(counts.temporal).toBe(1)
@@ -86,7 +104,7 @@ describe('nodeSignalCounts', () => {
 
   it('respects the edge filter', () => {
     const counts = nodeSignalCounts(edges, 'c.ts', 'dependency')
-    // Only c→d is a dependency edge; it also carries temporal + co-change signals
+
     expect(counts.dependenciesOut).toBe(1)
     expect(counts.dependentsIn).toBe(0)
     expect(counts.temporal).toBe(1)

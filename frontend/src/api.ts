@@ -1,8 +1,17 @@
 import type {
+  ImpactResponse,
   PredictionsResponse,
   RepositoryAnalysis,
   ReworkEvaluationReport,
+  RippleResponse,
 } from './types'
+import {
+  MAX_RETRIES,
+  MAX_RETRY_DELAY_MS,
+  exponentialBackoffDelayMs,
+  queryClient,
+  repositoryAnalysisQueryKey,
+} from './lib/queryClient'
 
 export class ApiError extends Error {
   status: number
@@ -15,18 +24,22 @@ export class ApiError extends Error {
 }
 
 const VITE_API_BASE = import.meta.env.VITE_API_BASE ?? ''
-const MAX_RETRIES = 2
-const MAX_RETRY_DELAY_MS = 10_000
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 function retryDelayMs(attempt: number, retryAfterSeconds: number | null): number {
-  const base = retryAfterSeconds != null && retryAfterSeconds > 0
-    ? retryAfterSeconds * 1000
-    : 1000 * 2 ** attempt
+  const base =
+    retryAfterSeconds != null && retryAfterSeconds > 0
+      ? retryAfterSeconds * 1000
+      : exponentialBackoffDelayMs(attempt)
   return Math.min(base, MAX_RETRY_DELAY_MS)
+}
+
+function isRetryableError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 429 ||
+      (error.status >= 500 && error.status < 600))
+  )
 }
 
 async function readErrorPayload(response: Response): Promise<{
@@ -40,7 +53,7 @@ async function readErrorPayload(response: Response): Promise<{
       message = body.error.trim()
     }
   } catch {
-    // Response body is not JSON; fall back to the generic message below.
+
   }
 
   const retryAfterHeader = response.headers.get('retry-after')
@@ -58,8 +71,9 @@ export async function fetchRepositoryAnalysis(
   repo: string,
 ): Promise<RepositoryAnalysis> {
   const url = `${VITE_API_BASE}/api/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/analysis`
+  let lastRetryAfterSeconds: number | null = null
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+  async function queryFn(): Promise<RepositoryAnalysis> {
     let response: Response
     try {
       response = await fetch(url)
@@ -73,15 +87,7 @@ export async function fetchRepositoryAnalysis(
     }
 
     const { message, retryAfterSeconds } = await readErrorPayload(response)
-
-    const retryable =
-      response.status === 429 || (response.status >= 500 && response.status < 600)
-
-    if (retryable && attempt < MAX_RETRIES) {
-      await wait(retryDelayMs(attempt, retryAfterSeconds))
-      continue
-    }
-
+    lastRetryAfterSeconds = retryAfterSeconds
     throw new ApiError(
       message
         ? message
@@ -90,7 +96,16 @@ export async function fetchRepositoryAnalysis(
     )
   }
 
-  throw new Error('Analysis request failed')
+  return queryClient.fetchQuery({
+    queryKey: repositoryAnalysisQueryKey(owner, repo),
+    queryFn,
+    staleTime: 0,
+    gcTime: 0,
+    retry: (failureCount, error) =>
+      failureCount < MAX_RETRIES && isRetryableError(error),
+    retryDelay: (failureCount) =>
+      retryDelayMs(failureCount, lastRetryAfterSeconds),
+  })
 }
 
 export async function fetchLocalAnalysis(repoPath: string): Promise<RepositoryAnalysis> {
@@ -191,4 +206,93 @@ export async function fetchReworkEvaluation(): Promise<ReworkEvaluationReport> {
   }
 
   return (await response.json()) as ReworkEvaluationReport
+}
+
+export interface RippleQuery {
+  source: string
+  changed?: string[]
+  maxDepth?: number
+  minConfidence?: number
+}
+
+export async function fetchRipple(
+  owner: string,
+  repo: string,
+  query: RippleQuery,
+): Promise<RippleResponse> {
+  const params = new URLSearchParams({ source: query.source })
+  if (query.changed && query.changed.length > 0) {
+    params.set('changed', query.changed.join(','))
+  }
+  if (query.maxDepth != null) params.set('max_depth', String(query.maxDepth))
+  if (query.minConfidence != null) {
+    params.set('min_confidence', String(query.minConfidence))
+  }
+  const url = `${VITE_API_BASE}/api/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/ripple?${params.toString()}`
+  return fetchJson<RippleResponse>(url, {}, 'Ripple request failed')
+}
+
+export async function fetchLocalRipple(
+  repoPath: string,
+  query: RippleQuery,
+): Promise<RippleResponse> {
+  const url = `${VITE_API_BASE}/api/local/ripple`
+  return fetchJson<RippleResponse>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: repoPath,
+        source: query.source,
+        changed: query.changed ?? [],
+        max_depth: query.maxDepth,
+        min_confidence: query.minConfidence,
+      }),
+    },
+    'Local ripple request failed',
+  )
+}
+
+export interface ImpactQuery {
+  changeDescription: string
+  maxResults?: number
+  includeLowConfidence?: boolean
+}
+
+export async function fetchImpact(
+  owner: string,
+  repo: string,
+  query: ImpactQuery,
+): Promise<ImpactResponse> {
+  const params = new URLSearchParams({
+    change_description: query.changeDescription,
+  })
+  if (query.maxResults != null) params.set('max_results', String(query.maxResults))
+  if (query.includeLowConfidence != null) {
+    params.set('include_low_confidence', String(query.includeLowConfidence))
+  }
+  const url = `${VITE_API_BASE}/api/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/impact-simulation?${params.toString()}`
+  return fetchJson<ImpactResponse>(url, {}, 'Impact simulation request failed')
+}
+
+export async function fetchLocalImpact(
+  repoPath: string,
+  query: ImpactQuery,
+): Promise<ImpactResponse> {
+  const url = `${VITE_API_BASE}/api/local/impact-simulation`
+  return fetchJson<ImpactResponse>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: repoPath,
+        change_description: query.changeDescription,
+        max_results: query.maxResults,
+        include_low_confidence: query.includeLowConfidence,
+      }),
+    },
+    'Local impact simulation request failed',
+  )
 }
