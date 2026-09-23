@@ -748,7 +748,78 @@ Large repository — NOT DONE
 
 # Phase 10 — Final Research Evaluation
 
-**Status: ⏳ Planned**
+**Status: 🚧 In Progress (evaluation battery executed 2026-09-23 on
+current code; axum ripple cell still computing — see docs)**
+
+## Phase 10 evaluation runs (2026-09-23)
+
+* Re-ran the full battery on current code (Python 3.14.7, sklearn 1.9.0,
+  seed 42): `benchmark.py` → `multi_repo_benchmark.json` (12 records),
+  `run_ablation.py` → `ablation_results.json` (28), `run_model_comparison.py`
+  → `model_comparison.json`, `error_analysis.py` → `error_analysis.json`.
+* New: `run_ripple_evaluation.py --repo … --out` (multi-repo) →
+  `ml/ripple_results.json`; small repos filled (top-1 always correct;
+  full == co-change-only — ground truth is same-commit by construction,
+  so temporal follow-up cannot win; cross-commit ground truth recorded
+  as follow-up work).
+* New: `run_impact_evaluation.py --git-repo …` (messages as descriptions,
+  strictly-before-T prefixes; keyword/co-change/combined) →
+  `ml/impact_results.json` on self history (near-null: 1 evaluable target
+  out of 16 coarse commits — harness verified, validation left open).
+* New: `docs/research-evaluation.md` consolidates every number with
+  honest readings (no ranking, no causal claims, imbalance regime stated).
+* Axum ripple cell pending (long pure-Python run over 999 commits);
+  artifacts are git-ignored and reproducible via `ml/scripts/`.
+
+## Ripple Forecasting (shipped)
+
+* [x] Backend signals (`backend/src/analysis/ripple.rs`): structural,
+  co-change P(B|A), temporal follow-up with median/avg delay, recent
+  coupling; documented weighted baseline, configurable `RippleConfig`
+  (max depth 5, max candidates 10, min confidence 0.5)
+* [x] Leakage-safe prefixes + chronological P@K/R@K/MRR/MAP evaluation
+  (`evaluate_ripple`); leakage regression tests
+* [x] Ordered cycle-free ripple paths; neutral missing-impact detection
+* [x] API: `GET /api/repositories/{owner}/{repo}/ripple`, `POST
+  /api/local/ripple` (cached, `spawn_blocking`)
+* [x] Frontend Ripple section (candidates, path, evidence, historical
+  examples, missing impact; ripple edges visually distinct from dependency
+  edges); 6 new tests
+* [x] ML ranking comparison (`ml/src/repoinsight_ml/ripple.py`,
+  `ml/scripts/run_ripple_evaluation.py`): co-change baseline vs full model
+
+## Impact Simulator (shipped)
+
+* [x] Deterministic intent extraction (`backend/src/analysis/impact.rs`):
+  operation verbs + domain/technology vocabularies, no LLM, no network
+* [x] Derived capability map (directory names, filenames, source content;
+  no manual definitions) with per-capability review checklist
+* [x] Impact discovery over semantic, dependency, historical co-change,
+  and test/config/docs signals; normalized weighted baseline
+  (`ImpactConfig`: semantic 0.35, dependency 0.20, historical 0.30,
+  kind 0.15), HIGH/MEDIUM/LOW candidate levels
+* [x] Impact map (planned change → capabilities → files) with per-edge
+  evidence; scenarios stay independent for side-by-side comparison
+* [x] API: `GET /api/repositories/{owner}/{repo}/impact-simulation`,
+  `POST /api/local/impact-simulation` (cached, `spawn_blocking`)
+* [x] Frontend Simulator section (intent display, level-grouped impact,
+  evidence, impact map, checklist); 7 new tests
+* [x] Chronological evaluation (`evaluate_impact`: commit message as
+  description, strictly-before-T prefixes; P@K/R@K/F1@K, directory
+  accuracy, test/config discovery; keyword/dependency/co-change/combined
+  baselines) + ML parity (`ml/src/repoinsight_ml/impact.py`,
+  `compare_impact_models`); leakage regression tests
+
+Research positioning: RepoInsight integrates intent extraction, derived
+capability maps, structural dependencies, historical co-change, and
+explainable evidence to estimate planned-change impact before
+implementation. Baseline comparisons measure each signal's contribution,
+never overclaimed.
+
+Research positioning: RepoInsight integrates structural dependencies,
+historical co-change, temporal ordering, recent behavior, and explainable
+evidence to forecast likely propagation paths. Temporal value-add is
+measured (baseline vs full), never overclaimed.
 
 ### Goal
 

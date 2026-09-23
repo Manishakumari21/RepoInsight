@@ -389,9 +389,9 @@ return per-file probability, label, confidence, evidence, historical
 examples and recommendations for the dashboard.
 
 The local loader (`backend/src/local.rs`) validates the path, confirms it is
-a Git repository via `git rev-parse`, then extracts the same common
+a Git repository via `git2`, then extracts the same common
 representation the GitHub collector produces: repository metadata, file tree
-(`git ls-tree`), commit history with changed files and authors
+(`git2` tree walk with `HEAD` fallback), commit history with changed files and authors
 (`git log --numstat --name-status`), and working-tree source contents. Both
 sources feed the identical Phase 3/4/5 pipeline (`analyze_loaded_data`,
 `build_dataset_from_loaded`), so the dashboard, dataset, and ML features are
@@ -705,6 +705,61 @@ Hotspot/difficulty scores remain heuristic percentile signals and are labeled
 as such; ML probabilities are labeled with the model name and uncalibrated
 status.
 
+### Change Ripple Forecasting
+
+RepoInsight Ripple answers "when this file changes, which other files
+historically and structurally tend to change afterward?" — an explainable
+integration of structural dependencies, historical co-change, temporal
+follow-up ordering, and recent coupling. A dependency edge means "A depends
+on B"; a ripple edge means "when A changes, B tends to change afterward".
+
+```text
+GET  /api/repositories/{owner}/{repo}/ripple?source=login.ts&max_depth=5&min_confidence=0.5
+POST /api/local/ripple
+{"path": "/home/user/projects/my-repo", "source": "login.ts"}
+```
+
+Each response carries ranked candidates with reasons, one greedy
+cycle-free ripple path (max depth 5, never forced when evidence is weak),
+per-edge historical examples, and neutral "potential missing impact"
+warnings. Scores are a documented weighted baseline (`ripple_baseline`,
+uncalibrated), computed from precomputed dependency/co-change/temporal
+structures so per-file queries stay fast. Chronological evaluation
+(precision@K, recall@K, MRR, MAP) lives in `backend/src/analysis/ripple.rs`
+(`evaluate_ripple`) and `ml/src/repoinsight_ml/ripple.py`
+(`compare_ripple_models`: co-change baseline vs full model).
+
+### Change Impact Simulator
+
+The Impact Simulator answers a different question from predictions or
+ripple forecasting: "this change is only planned, what should I look at?"
+A developer describes the intended change in natural language
+("Replace JWT authentication with OAuth2") and RepoInsight estimates
+which repository areas would need attention before anything is modified.
+Analysis only — no source code is ever changed.
+
+```text
+GET  /api/repositories/{owner}/{repo}/impact-simulation?change_description=Replace+JWT+authentication+with+OAuth2
+POST /api/local/impact-simulation
+{"path": "/home/user/projects/my-repo", "change_description": "Replace JWT authentication with OAuth2"}
+```
+
+The pipeline is deterministic and local (no LLM, no network): intent
+extraction (operation verbs + domain/technology vocabularies) → a
+repository capability map derived from directory names, filenames, and
+source content → impact discovery over semantic, dependency, historical
+co-change, and test/config/docs signals → normalized weighted scoring
+(`impact_baseline`, uncalibrated) with HIGH/MEDIUM/LOW candidate levels →
+an impact map (planned change → capabilities → files), a review checklist,
+and per-file evidence. Each scenario request is independent, so
+alternative plans ("replace" vs "add alongside") can be compared
+side by side. Chronological evaluation (commit message as description,
+strictly-before-T prefixes; precision@K, recall@K, F1@K, directory
+accuracy, test/config discovery) lives in
+`backend/src/analysis/impact.rs` (`evaluate_impact` with keyword-only,
+dependency-only, co-change-only, and combined baselines) and
+`ml/src/repoinsight_ml/impact.py` (`compare_impact_models`).
+
 ## Phase 9 — Finalization
 
 * [x] Integration testing
@@ -768,13 +823,17 @@ Components should be added when they have a real responsibility rather than crea
 
 Current focus:
 
-> **Phase 5: Dataset Creation**
+> **Phase 10: Final Research Evaluation**
 
-The GitHub collection layer, analysis foundations, and change propagation
-intelligence (timeline, sequences, follow-ups, rework signals, historical
-examples) are in place. The next major step is turning the
-temporal/propagation representation into ML-ready training data
-(**Phase 5: dataset generation**).
+Shipped on top of the Phase 3–9 foundation: leakage-safe ML datasets
+and baselines (logistic regression + RF/HGB comparison), per-file
+predictions with evidence, Change Ripple Forecasting, Change Impact
+Simulator, and a 4-section investigation dashboard (Overview / Explore /
+Predict / History). The Phase 10 battery (benchmark, ablation, model
+comparison, error analysis, ripple and impact evaluations) runs from
+`ml/scripts/`; consolidated honest numbers live in
+`docs/research-evaluation.md`. Generated JSON artifacts are git-ignored
+and reproducible.
 
 ## Implementation status
 
