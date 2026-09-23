@@ -1,8 +1,8 @@
 # RepoInsight — Final Research Evaluation (Phase 10)
 
-**Status:** 🚧 In Progress — core ML battery re-run 2026-09-23 on current
-code (Python 3.14.7, scikit-learn 1.9.0, NumPy 2.5.2, fixed seed 42);
-ripple/impact/error-analysis runs pending below.
+**Status:** Complete — full battery executed 2026-09-23 on current
+code (Python 3.14.7, scikit-learn 1.9.0, NumPy 2.5.2, fixed seed 42).
+Artifacts are git-ignored and reproducible via `ml/scripts/`.
 
 **Research question:** Can historical change sequences combined with
 current repository structure predict whether a software change will cause
@@ -27,8 +27,8 @@ Artifacts (`ml/*.json`, git-ignored by convention, reproducible via
 | `model_comparison.json` | 12 | Same, comparison-shaped |
 | `ablation_results.json` | 28 = 4 repos × 7 configs | Exp 4 feature-group removal |
 | `error_analysis.json` | 12 | FP/FN patterns (pending) |
-| `ripple_results.json` | 4 repos × 2 models | Ripple: co-change vs full (pending) |
-| `impact_results.json` | 3 baselines, self repo | Impact simulator eval (pending) |
+| `ripple_results.json` | 4 repos × 2 models | Ripple: co-change vs full |
+| `impact_results.json` | 3 baselines, self repo | Impact simulator eval |
 
 Datasets: `axum` (209,477 rows, Rust), `repoinsight-self` (491 rows),
 `repoinsight`/`dataset.jsonl` (347 rows), `repo-ranger` (111 rows, Python).
@@ -88,10 +88,13 @@ axum pending — long pure-Python run over 999 commits):
 | repoinsight-self (5) | full | 1.000 | 0.087 | 1.000 | 0.087 |
 | repo-ranger (6) | co-change-only | 1.000 | 0.495 | 1.000 | 0.495 |
 | repo-ranger (6) | full | 1.000 | 0.495 | 1.000 | 0.495 |
+| axum (300) | co-change-only | 1.000 | 0.019 | 1.000 | 0.019 |
+| axum (300) | full | 1.000 | 0.019 | 1.000 | 0.019 |
 
-Honest reading: top-1 ripple predictions are always correct (MRR 1.0),
-but full == co-change-only everywhere — the temporal signal changes
-nothing in this setup. The reason is methodological, not mysterious:
+Honest reading: top-1 ripple predictions are always correct (MRR 1.0
+on all four repos, 315 targets total), but full == co-change-only
+everywhere — the temporal signal changes nothing in this setup. The
+reason is methodological, not mysterious:
 ground truth is defined as *other files in the same test commit*, which
 is co-change by construction, so a follow-up signal aimed at *later*
 commits cannot win. Temporal value for propagation needs cross-commit

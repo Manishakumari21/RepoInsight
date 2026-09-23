@@ -71,35 +71,42 @@ def build_ripple_scores(
     times = _commit_times(rows)
     ordered = sorted(by_commit, key=lambda sha: (times[sha], sha))
 
-    source_commits = [sha for sha in ordered if source in by_commit[sha]]
-    source_count = len(source_commits)
+    import numpy as np
+
+    files = sorted({path for paths in by_commit.values() for path in paths})
+    if source not in files:
+        return []
+    index = {path: position for position, path in enumerate(files)}
+    stamps = np.array([times[sha] for sha in ordered], dtype=np.int64)
+    membership = np.zeros((len(ordered), len(files)), dtype=bool)
+    for row, sha in enumerate(ordered):
+        for path in by_commit[sha]:
+            membership[row, index[path]] = True
+
+    present = membership[:, index[source]]
+    source_count = int(present.sum())
     if source_count == 0:
         return []
 
-    candidates = sorted(
-        {path for files in by_commit.values() for path in files} - {source}
-    )
+    co_counts = membership[present].sum(axis=0)
+    follow_counts = np.zeros(len(files), dtype=np.int64)
+    if use_temporal:
+        gaps = stamps[None, :] - stamps[:, None]
+        in_window = (gaps > 0) & (gaps <= window_secs)
+        from_source = in_window[present]
+        target_later = membership & ~present[:, None]
+        no_source = ~present
+        for start in range(0, len(files), 128):
+            stop = min(start + 128, len(files))
+            chunk = target_later[:, start:stop].T[None, :, :]
+            hit = from_source[:, None, :] & chunk & no_source[None, None, :]
+            follow_counts[start:stop] = hit.any(axis=2).sum(axis=0)
     scored: list[dict[str, Any]] = []
-    for target in candidates:
-        co_count = sum(
-            1 for sha in source_commits if target in by_commit[sha]
-        )
-        co_prob = co_count / source_count
-        follow_count = 0
-        if use_temporal:
-            for sha in source_commits:
-                for later in ordered:
-                    if later == sha:
-                        continue
-                    delay = times[later] - times[sha]
-                    if delay <= 0 or delay > window_secs:
-                        continue
-                    if target in by_commit[later] and source not in by_commit[later]:
-
-
-                        follow_count += 1
-                        break
-        follow_prob = follow_count / source_count
+    for position, target in enumerate(files):
+        if target == source:
+            continue
+        co_prob = float(co_counts[position]) / source_count
+        follow_prob = float(follow_counts[position]) / source_count
         signals = [co_prob] + ([follow_prob] if use_temporal else [])
         scored.append(
             {

@@ -748,8 +748,8 @@ Large repository — NOT DONE
 
 # Phase 10 — Final Research Evaluation
 
-**Status: 🚧 In Progress (evaluation battery executed 2026-09-23 on
-current code; axum ripple cell still computing — see docs)**
+**Status: ✅ Complete (evaluation battery executed 2026-09-23 on
+current code; consolidated in `docs/research-evaluation.md`)**
 
 ## Phase 10 evaluation runs (2026-09-23)
 
@@ -758,18 +758,18 @@ current code; axum ripple cell still computing — see docs)**
   `run_ablation.py` → `ablation_results.json` (28), `run_model_comparison.py`
   → `model_comparison.json`, `error_analysis.py` → `error_analysis.json`.
 * New: `run_ripple_evaluation.py --repo … --out` (multi-repo) →
-  `ml/ripple_results.json`; small repos filled (top-1 always correct;
-  full == co-change-only — ground truth is same-commit by construction,
-  so temporal follow-up cannot win; cross-commit ground truth recorded
-  as follow-up work).
+  `ml/ripple_results.json` (all 4 repos; top-1 always correct, full ==
+  co-change-only — same-commit ground truth documented as the cause).
 * New: `run_impact_evaluation.py --git-repo …` (messages as descriptions,
   strictly-before-T prefixes; keyword/co-change/combined) →
   `ml/impact_results.json` on self history (near-null: 1 evaluable target
   out of 16 coarse commits — harness verified, validation left open).
 * New: `docs/research-evaluation.md` consolidates every number with
   honest readings (no ranking, no causal claims, imbalance regime stated).
-* Axum ripple cell pending (long pure-Python run over 999 commits);
-  artifacts are git-ignored and reproducible via `ml/scripts/`.
+* Axum ripple cell filled via vectorized `build_ripple_scores`
+  (numpy commit×file incidence algebra; outputs verified byte-identical
+  to the pure-Python version on all small datasets before rerunning).
+* Artifacts are git-ignored and reproducible via `ml/scripts/`.
 
 ## Ripple Forecasting (shipped)
 
