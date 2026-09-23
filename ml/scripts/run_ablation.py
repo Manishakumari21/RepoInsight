@@ -1,17 +1,3 @@
-"""Phase 9.8 ablation runner (real datasets only).
-
-Trains the logistic-regression baseline on each feature-group
-configuration (all / single groups / pairs) using the exact same
-chronological split per repository, then records precision/recall/F1,
-ROC-AUC/PR-AUC and confusion counts. No ranking is applied.
-
-Usage:
-    python ml/scripts/run_ablation.py \\
-        --repo repoinsight ml/data/dataset.jsonl \\
-        --repo repo-ranger ml/data/repo-ranger.jsonl \\
-        --out ml/ablation_results.json [--envelope]
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -23,11 +9,11 @@ from pathlib import Path
 ML_SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(ML_SRC))
 
-from repoinsight_ml.ablation import run_ablation  # noqa: E402
-from repoinsight_ml.dataset import load_jsonl, split_chronologically  # noqa: E402
+from repoinsight_ml.ablation import run_ablation
+from repoinsight_ml.dataset import load_jsonl, split_chronologically
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from benchmark import label_counts, relative_dataset_ref, run_metadata  # noqa: E402
+from benchmark import label_counts, relative_dataset_ref, run_metadata
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -77,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
             "records": records,
         }
     else:
-        payload = records  # type: ignore[assignment]
+        payload = records
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {len(records)} ablation records to {out}")
     return 0

@@ -160,38 +160,43 @@ pub fn build_propagation(
     cochange: &HashMap<(String, String), usize>,
     dependencies: &[crate::analysis::dependencies::DependencyEdge],
 ) -> PropagationAnalysis {
-    let mut edges: HashMap<(String, String), PropagationEdge> = HashMap::new();
+    use petgraph::Graph;
+    use std::collections::HashMap as Map;
+
+    let mut graph: Graph<String, u32> = Graph::new();
+    let mut node_index: Map<String, petgraph::graph::NodeIndex> = Map::new();
+    let mut flags: Map<(String, String), (bool, bool, bool)> = Map::new();
+
+    let node = |graph: &mut Graph<String, u32>,
+                node_index: &mut Map<String, petgraph::graph::NodeIndex>,
+                name: &String|
+     -> petgraph::graph::NodeIndex {
+        if let Some(idx) = node_index.get(name) {
+            return *idx;
+        }
+        let idx = graph.add_node(name.clone());
+        node_index.insert(name.clone(), idx);
+        idx
+    };
 
     for pair in &temporal.pairs {
-        let edge = edges
+        let source = node(&mut graph, &mut node_index, &pair.source);
+        let target = node(&mut graph, &mut node_index, &pair.target);
+        graph.add_edge(source, target, pair.occurrences as u32);
+        let entry = flags
             .entry((pair.source.clone(), pair.target.clone()))
-            .or_insert_with(|| PropagationEdge {
-                source: pair.source.clone(),
-                target: pair.target.clone(),
-                dependency: false,
-                temporal: false,
-                cochange: false,
-                strength: 0,
-            });
-
-        edge.temporal = true;
-        edge.strength += pair.occurrences;
+            .or_insert((false, false, false));
+        entry.0 = true;
     }
 
     for ((source, target), count) in cochange {
-        let edge = edges
+        let s = node(&mut graph, &mut node_index, source);
+        let t = node(&mut graph, &mut node_index, target);
+        graph.add_edge(s, t, *count as u32);
+        let entry = flags
             .entry((source.clone(), target.clone()))
-            .or_insert_with(|| PropagationEdge {
-                source: source.clone(),
-                target: target.clone(),
-                dependency: false,
-                temporal: false,
-                cochange: false,
-                strength: 0,
-            });
-
-        edge.cochange = true;
-        edge.strength += *count;
+            .or_insert((false, false, false));
+        entry.1 = true;
     }
 
     for dependency in dependencies {
@@ -203,22 +208,40 @@ pub fn build_propagation(
             continue;
         }
 
-        let edge = edges
+        let s = node(&mut graph, &mut node_index, &dependency.source);
+        let t = node(&mut graph, &mut node_index, &dependency.target);
+        graph.add_edge(s, t, 1);
+        let entry = flags
             .entry((dependency.source.clone(), dependency.target.clone()))
-            .or_insert_with(|| PropagationEdge {
-                source: dependency.source.clone(),
-                target: dependency.target.clone(),
-                dependency: false,
-                temporal: false,
-                cochange: false,
-                strength: 0,
-            });
-
-        edge.dependency = true;
-        edge.strength += 1;
+            .or_insert((false, false, false));
+        entry.2 = true;
     }
 
-    let mut edges = edges.into_values().collect::<Vec<_>>();
+    let mut strengths: HashMap<(String, String), u32> = HashMap::new();
+    for edge in graph.edge_indices() {
+        let (source, target) = graph.edge_endpoints(edge).expect("petgraph edge endpoints");
+        let key = (graph[source].clone(), graph[target].clone());
+        let weight = graph[edge];
+        *strengths.entry(key).or_insert(0) += weight;
+    }
+
+    let mut edges = strengths
+        .into_iter()
+        .map(|((source, target), strength)| {
+            let (temporal_flag, cochange_flag, dependency_flag) = flags
+                .get(&(source.clone(), target.clone()))
+                .copied()
+                .unwrap_or((false, false, false));
+            PropagationEdge {
+                source,
+                target,
+                dependency: dependency_flag,
+                temporal: temporal_flag,
+                cochange: cochange_flag,
+                strength: strength as usize,
+            }
+        })
+        .collect::<Vec<_>>();
 
     edges.sort_unstable_by_key(|edge| std::cmp::Reverse(edge.strength));
     edges.truncate(100);

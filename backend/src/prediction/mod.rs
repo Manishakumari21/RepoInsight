@@ -1,13 +1,3 @@
-//! Phase 8 predictions: real ML inference for the dashboard.
-//!
-//! Runs the exact Phase 6 logistic-regression baseline math
-//! (median imputation with zero fallback, standard scaling, sigmoid)
-//! using weights exported by `ml/scripts/export_baseline_weights.py`.
-//! Only information already present in the leakage-safe dataset rows is
-//! used; per-file predictions use each file's latest row. Evidence,
-//! historical examples, confidence and recommendations mirror the Phase 7
-//! Python layer (`ml/src/repoinsight_ml/`) with associational language.
-
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -24,11 +14,9 @@ pub const TOP_EVIDENCE_COUNT: usize = 5;
 pub const MAX_HISTORICAL_EXAMPLES: usize = 5;
 pub const MAX_RECOMMENDATIONS: usize = 3;
 
-// Confidence thresholds on strength max(p, 1 - p); mirrors Phase 7.
 const LOW_THRESHOLD: f64 = 0.6;
 const HIGH_THRESHOLD: f64 = 0.8;
 
-// Canonical 23-feature order; must match the exported weights.
 pub const FEATURE_ORDER: [&str; 23] = [
     "file_size_bytes",
     "lines_of_code",
@@ -55,7 +43,6 @@ pub const FEATURE_ORDER: [&str; 23] = [
     "historical_rework_frequency",
 ];
 
-// feature -> (group, description); mirrors Phase 7 FEATURE_DESCRIPTIONS.
 const FEATURE_META: [(&str, &str, &str); 23] = [
     (
         "file_size_bytes",
@@ -199,8 +186,6 @@ fn weights() -> &'static Weights {
     })
 }
 
-/// Raw feature values for one dataset row, in canonical order.
-/// `None` marks missing optional values (imputed downstream).
 pub fn raw_values(row: &DatasetRow) -> [Option<f64>; 23] {
     let structural = &row.structural;
     let historical = &row.historical;
@@ -238,16 +223,20 @@ fn sigmoid(score: f64) -> f64 {
     1.0 / (1.0 + (-score).exp())
 }
 
-/// Predicted probability for the positive class using the exported
-/// baseline weights. Mirrors `LogisticRegression.predict_proba`.
 pub fn predict_proba(raw: &[Option<f64>; 23]) -> f64 {
+    use ndarray::Array1;
+
     let loaded = weights();
-    let mut score = loaded.intercept;
-    for index in 0..23 {
-        let imputed = raw[index].unwrap_or_else(|| loaded.median[index].unwrap_or(0.0));
-        let scaled = (imputed - loaded.scaler_mean[index]) / loaded.scaler_scale[index];
-        score += loaded.coefficients[index] * scaled;
-    }
+    let scaled = Array1::from(
+        (0..23)
+            .map(|index| {
+                let imputed = raw[index].unwrap_or_else(|| loaded.median[index].unwrap_or(0.0));
+                (imputed - loaded.scaler_mean[index]) / loaded.scaler_scale[index]
+            })
+            .collect::<Vec<_>>(),
+    );
+    let coefficients = Array1::from(loaded.coefficients.clone());
+    let score = loaded.intercept + coefficients.dot(&scaled);
     sigmoid(score)
 }
 
@@ -364,8 +353,6 @@ fn commit_files(commit: &Commit) -> Vec<String> {
     files
 }
 
-/// Real past events for a file, newest first. Every commit in the loaded
-/// history precedes the current prediction, so no future data can leak.
 fn historical_examples(commits: &[Commit], file: &str) -> Vec<HistoricalExample> {
     let mut examples = Vec::new();
     for commit in commits {
@@ -464,7 +451,6 @@ fn recommendations(
     out
 }
 
-/// Latest dataset row per file: the freshest leakage-safe snapshot of it.
 fn latest_rows<'a>(rows: &'a [DatasetRow]) -> Vec<&'a DatasetRow> {
     let mut latest: HashMap<&str, &DatasetRow> = HashMap::new();
     for row in rows {
@@ -538,8 +524,6 @@ pub fn predict_files(rows: &[DatasetRow], commits: &[Commit]) -> PredictionsResp
 mod tests {
     use super::*;
 
-    // Reference vector from the Phase 6 training data; Python reports
-    // predict_proba == 0.03526788170277072 for it.
     const REFERENCE_RAW: [Option<f64>; 23] = [
         Some(8224.0),
         Some(259.0),

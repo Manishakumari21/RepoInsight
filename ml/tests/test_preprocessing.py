@@ -10,7 +10,6 @@ from repoinsight_ml.train import build_baseline_model
 
 
 def _frame():
-    # 23 columns: one partially missing, one completely missing.
     data = {col: [1.0, 2.0, 3.0] for col in FEATURE_COLUMNS}
     data["time_since_last_change_secs"] = [1.0, np.nan, 3.0]
     data["avg_change_delay_seconds"] = [np.nan, np.nan, np.nan]

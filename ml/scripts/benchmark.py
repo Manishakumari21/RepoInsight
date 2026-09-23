@@ -1,40 +1,3 @@
-"""Phase 9.6 multi-repository benchmark runner (real data only).
-
-For each real dataset JSONL (one row = one file in one historical commit,
-as produced by ``POST /api/local/dataset`` or ``GET
-/api/repositories/{owner}/{repo}/dataset``), this script:
-
-1. Loads and chronologically splits rows (70/15/15 by commit, commits
-   never split) using the project's own ``split_chronologically``.
-2. Trains every existing candidate model (logistic_regression,
-   random_forest, hist_gradient_boosting — see ``compare.py``) on the
-   train split and evaluates on the test split with the project's own
-   ``evaluate_model``. No ranking is applied here.
-3. Records one JSON record per (repository, model) with dataset stats,
-   confusion counts, metrics and timings.
-
-Usage:
-    python ml/scripts/benchmark.py \\
-        --repo repoinsight ml/data/dataset.jsonl python \\
-        --repo repoinsight-self ml/data/repoinsight-self.jsonl python \\
-        --repo repo-ranger ml/data/repo-ranger.jsonl python \\
-        --out ml/benchmark_results.json
-
-Timing definitions (honest, no fake precision):
-- ``analysis_time_seconds``: dataset load + chronological split +
-  feature-matrix construction (data preparation before any training).
-- ``prediction_time_seconds``: model fitting + test-set evaluation for
-  that (repository, model) pair.
-
-``null`` is emitted where a metric is mathematically undefined (e.g.
-ROC-AUC on a single-class test split). Undefined is never replaced
-with a fabricated zero.
-
-``--envelope`` wraps records with run metadata (Python/sklearn/numpy
-versions, UTC timestamp, split and model configuration, relative dataset
-paths) for reproducibility. The default bare-list output is unchanged.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -52,16 +15,14 @@ from sklearn.metrics import confusion_matrix
 ML_SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(ML_SRC))
 
-from repoinsight_ml.compare import build_candidate_models  # noqa: E402
-from repoinsight_ml.dataset import load_jsonl, split_chronologically  # noqa: E402
-from repoinsight_ml.evaluate import evaluate_model  # noqa: E402
-from repoinsight_ml.features import rows_to_features  # noqa: E402
+from repoinsight_ml.compare import build_candidate_models
+from repoinsight_ml.dataset import load_jsonl, split_chronologically
+from repoinsight_ml.evaluate import evaluate_model
+from repoinsight_ml.features import rows_to_features
 
 TRAIN_RATIO = 0.70
 VALIDATION_RATIO = 0.15
 
-# Curated hyperparameter keys recorded per model for reproducibility.
-# Full pipelines are rebuilt deterministically by ``build_candidate_models``.
 MODEL_PARAM_KEYS = (
     "n_estimators",
     "max_iter",
@@ -90,7 +51,6 @@ def relative_dataset_ref(path: Path) -> str:
 
 
 def model_configs() -> dict[str, dict]:
-    """Reproducibility summary of the existing candidate models."""
     configs: dict[str, dict] = {}
     for name, model in build_candidate_models().items():
         classifier = model.named_steps["classifier"]
@@ -217,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.envelope:
         payload: dict = {"metadata": run_metadata(repos), "records": records}
     else:
-        payload = records  # type: ignore[assignment]
+        payload = records
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {len(records)} benchmark records to {out}")
     return 0

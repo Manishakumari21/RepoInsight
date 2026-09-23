@@ -94,8 +94,6 @@ def test_calibration_does_not_use_test_data_for_fitting():
         r["timestamp"] for r in split.test
     )
 
-    # Single-class test period still calibrates: test labels are not
-    # needed to fit the calibrator.
     single_class = [dict(r) for r in rows]
     test_ids = {r["commit_sha"] for r in split.test}
     for r in single_class:

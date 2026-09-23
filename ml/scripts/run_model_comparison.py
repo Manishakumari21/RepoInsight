@@ -1,17 +1,3 @@
-"""Phase 9.7 model comparison summary (no ranking).
-
-Reads a benchmark output file (bare list or ``--envelope`` dict) and
-writes one compact record per repository/model pair. This is a research
-comparison, not a leaderboard: repositories have different class
-distributions, so metrics must be interpreted in context — see the
-``interpretation`` note embedded in the output.
-
-Usage:
-    python ml/scripts/run_model_comparison.py \\
-        --in ml/multi_repo_benchmark.json \\
-        --out ml/model_comparison.json
-"""
-
 from __future__ import annotations
 
 import argparse

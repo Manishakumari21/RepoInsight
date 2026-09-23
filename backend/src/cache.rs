@@ -1,19 +1,12 @@
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use tokio::sync::Mutex;
+use moka::future::Cache;
 
 pub const CACHE_TTL: Duration = Duration::from_secs(300);
 pub const CACHE_CAPACITY: usize = 64;
 
-struct Entry {
-    created_at: Instant,
-    body: Vec<u8>,
-}
-
 pub struct AnalysisCache {
-    ttl: Duration,
-    inner: Mutex<HashMap<String, Entry>>,
+    inner: Cache<String, Vec<u8>>,
 }
 
 impl AnalysisCache {
@@ -23,52 +16,19 @@ impl AnalysisCache {
 
     pub fn with_ttl(ttl: Duration) -> Self {
         Self {
-            ttl,
-            inner: Mutex::new(HashMap::new()),
+            inner: Cache::builder()
+                .max_capacity(CACHE_CAPACITY as u64)
+                .time_to_live(ttl)
+                .build(),
         }
     }
 
     pub async fn get(&self, key: &str) -> Option<Vec<u8>> {
-        let mut inner = self.inner.lock().await;
-
-        let entry = inner.get(key)?;
-
-        if entry.created_at.elapsed() >= self.ttl {
-            inner.remove(key);
-            return None;
-        }
-
-        Some(entry.body.clone())
+        self.inner.get(key).await
     }
 
     pub async fn insert(&self, key: &str, body: Vec<u8>) {
-        let mut inner = self.inner.lock().await;
-
-        if inner.len() >= CACHE_CAPACITY {
-            let stale_key = inner
-                .iter()
-                .find(|(_, entry)| entry.created_at.elapsed() >= self.ttl)
-                .map(|(key, _)| key.clone());
-
-            match stale_key {
-                Some(stale_key) => {
-                    inner.remove(&stale_key);
-                }
-                None => {
-                    if let Some(any_key) = inner.keys().next().cloned() {
-                        inner.remove(&any_key);
-                    }
-                }
-            }
-        }
-
-        inner.insert(
-            key.to_owned(),
-            Entry {
-                created_at: Instant::now(),
-                body,
-            },
-        );
+        self.inner.insert(key.to_owned(), body).await;
     }
 }
 

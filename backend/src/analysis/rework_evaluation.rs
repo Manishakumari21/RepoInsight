@@ -18,38 +18,47 @@ pub struct LabelRow {
 }
 
 pub fn parse_labels(csv: &str) -> Result<Vec<LabelRow>, String> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .trim(csv::Trim::All)
+        .flexible(true)
+        .from_reader(csv.as_bytes());
+
     let mut rows = Vec::new();
 
-    for (line_number, line) in csv.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
+    for (index, record) in reader.records().enumerate() {
+        let line_number = index + 1;
+        let record = record.map_err(|err| format!("line {line_number}: {err}"))?;
+
+        if record.len() == 1 && record[0].trim().is_empty() {
             continue;
         }
-        if line_number == 0 && line.starts_with("previous_sha") {
+        if record.iter().all(|field| field.trim().is_empty()) {
+            continue;
+        }
+        if index == 0 && record.len() >= 3 && record.get(0) == Some("previous_sha") {
             continue;
         }
 
-        let parts: Vec<&str> = line.split(',').map(str::trim).collect();
-        if parts.len() != 3 {
-            return Err(format!("line {}: expected 3 columns", line_number + 1));
+        if record.len() != 3 {
+            return Err(format!("line {line_number}: expected 3 columns"));
         }
-        if parts[0].is_empty() || parts[1].is_empty() {
-            return Err(format!("line {}: empty SHA", line_number + 1));
+        if record[0].is_empty() || record[1].is_empty() {
+            return Err(format!("line {line_number}: empty SHA"));
         }
-        let actual_rework = match parts[2].to_ascii_lowercase().as_str() {
+        let actual_rework = match record[2].to_ascii_lowercase().as_str() {
             "true" => true,
             "false" => false,
             other => {
                 return Err(format!(
-                    "line {}: actual_rework must be true/false, got {other:?}",
-                    line_number + 1
+                    "line {line_number}: actual_rework must be true/false, got {other:?}"
                 ));
             }
         };
 
         rows.push(LabelRow {
-            previous_sha: parts[0].to_owned(),
-            current_sha: parts[1].to_owned(),
+            previous_sha: record[0].to_owned(),
+            current_sha: record[1].to_owned(),
             actual_rework,
         });
     }

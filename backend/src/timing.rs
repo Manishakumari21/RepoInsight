@@ -1,51 +1,32 @@
-//! Lightweight end-to-end performance instrumentation (Phase 9).
-//!
-//! [`AnalysisTimings`] records per-stage wall-clock times for the local
-//! repository pipeline. Stage fields are `None` until that stage
-//! completes, so a failed run can never report fabricated timings.
-//! Counts are plain integers (`0` when nothing was observed).
-//!
-//! Memory is intentionally NOT measured here: reliable peak-RSS
-//! measurement is platform-dependent (libc `getrusage`, `/proc`, …).
-//! Use external profiling instead, e.g.
-//! `/usr/bin/time -v <backend>` or the `scripts/measure_local_analysis.py`
-//! diagnostic wrapper.
-
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-/// Per-stage timings (milliseconds) and observed counts for one local
-/// repository analysis run.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalysisTimings {
-    /// Path validation + canonicalization (`validate_local_path`).
     pub repository_validation_ms: Option<u64>,
-    /// `git ls-tree` + entry parsing.
+
     pub tree_loading_ms: Option<u64>,
-    /// `git log` + commit parsing.
+
     pub commit_loading_ms: Option<u64>,
-    /// Working-tree source file reads (blocking I/O, off async workers).
+
     pub source_loading_ms: Option<u64>,
-    /// Tree-sitter parsing, complexity, dependencies, history, temporal
-    /// analysis, scoring (`analyze_loaded_data`, CPU-bound).
+
     pub structural_analysis_ms: Option<u64>,
-    /// Leakage-safe dataset row construction (CPU-bound).
+
     pub dataset_construction_ms: Option<u64>,
-    /// End-to-end wall clock for the timed run.
+
     pub total_ms: Option<u64>,
 
-    /// Blob entries in the Git tree.
     pub file_count: usize,
-    /// Commits loaded (capped by the loader).
+
     pub commit_count: usize,
-    /// Source files actually read from the working tree.
+
     pub source_file_count: usize,
-    /// Dataset rows constructed (0 when the run skips that stage).
+
     pub dataset_row_count: usize,
 }
 
-/// Milliseconds elapsed since `start`, saturating on overflow.
 pub fn elapsed_ms(start: Instant) -> u64 {
     start.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
 }
@@ -92,7 +73,6 @@ mod tests {
 
     #[test]
     fn partial_timings_stay_honest() {
-        // A run that fails after tree loading must not invent later stages.
         let mut timings = AnalysisTimings::default();
         timings.repository_validation_ms = Some(0);
         timings.tree_loading_ms = Some(5);

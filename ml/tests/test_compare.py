@@ -42,7 +42,6 @@ def _synthetic_rows(n_commits: int = 4, rows_per_commit: int = 6):
                     "label": (r + c) % 2,
                 }
             )
-    # Ensure test split has both classes (chronological last commit).
     return rows
 
 

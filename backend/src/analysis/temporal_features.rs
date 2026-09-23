@@ -16,11 +16,6 @@ pub struct TemporalFeatures {
     pub historical_rework_frequency: usize,
 }
 
-/// Per-file temporal signals over one considered commit set.
-///
-/// `file_times` maps each file to its sorted change timestamps within the
-/// set; `ref_ts` is the reference time (history end for snapshots, target
-/// time `T` for dataset rows); only information in the set may be passed.
 pub fn build_temporal_features(
     temporal: &TemporalAnalysis,
     propagation: &PropagationAnalysis,
@@ -107,7 +102,6 @@ fn mean_gap(stamps: &[i64]) -> Option<i64> {
 }
 
 impl TemporalFeatures {
-    /// Zero signals for files absent from the considered evidence.
     #[allow(
         dead_code,
         reason = "Phase 5 library API: used by dataset construction and unit tests"

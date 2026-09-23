@@ -97,7 +97,6 @@ def test_split_has_no_future_rows_in_train():
 
 def test_undefined_metrics_stay_undefined():
     rows = _synthetic_rows()
-    # Keep both classes in train, but leave the final (test) commit all-negative.
     last = max(r["commit_sha"] for r in rows)
     for row in rows:
         if row["commit_sha"] == last:

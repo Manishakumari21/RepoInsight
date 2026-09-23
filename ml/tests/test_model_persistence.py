@@ -17,7 +17,6 @@ from repoinsight_ml.model_persistence import (
 def _frame(n=12):
     rng = np.random.RandomState(0)
     data = {c: rng.uniform(0, 10, size=n) for c in FEATURE_COLUMNS}
-    # Keep one partially-missing and one fully-missing column pattern.
     data["time_since_last_change_secs"] = [1.0 if i % 2 else np.nan for i in range(n)]
     data["avg_change_delay_seconds"] = [np.nan] * n
     X = pd.DataFrame(data, columns=FEATURE_COLUMNS)
@@ -60,7 +59,6 @@ def test_complete_pipeline_persisted_and_usable(tmp_path):
         assert meta["model_name"] == name
         assert "sklearn_version" in meta and "train_rows" in meta
         assert "token" not in str(meta).lower()
-        # Usable on new data with same schema.
         assert len(loaded.predict(X)) == len(y)
 
 
@@ -97,7 +95,6 @@ def test_persist_all_writes_expected_artifacts(tmp_path):
     for p in paths.values():
         assert p.is_file()
     assert (tmp_path / "artifacts" / "metadata.json").is_file()
-    # Deterministic: reload gives identical probabilities.
     X2, _ = _frame()
     for name, p in paths.items():
         assert np.allclose(

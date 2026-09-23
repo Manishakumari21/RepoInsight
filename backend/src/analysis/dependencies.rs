@@ -66,17 +66,19 @@ pub fn analyze(edges: &[DependencyEdge]) -> DependencyMetrics {
 }
 
 fn calculate_highly_connected_files(values: impl Iterator<Item = usize>) -> usize {
+    use statrs::statistics::Statistics;
+
     let values: Vec<f64> = values.map(|value| value as f64).collect();
     if values.is_empty() {
         return 0;
     }
 
-    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let mean = values.iter().copied().collect::<Vec<_>>().mean();
     let variance = values
         .iter()
-        .map(|value| (value - mean).powi(2))
-        .sum::<f64>()
-        / values.len() as f64;
+        .copied()
+        .collect::<Vec<_>>()
+        .population_variance();
     let threshold = mean + variance.sqrt();
 
     values.iter().filter(|value| **value > threshold).count()

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Cell, Pie, PieChart } from 'recharts'
 
 export function Donut({
   segments,
@@ -14,61 +15,68 @@ export function Donut({
   label?: string
 }) {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0)
-  const radius = (size - thickness) / 2
-  const circumference = 2 * Math.PI * radius
-  const lengths = segments.map(
-    (segment) => (total > 0 ? (segment.value / total) * circumference : 0),
-  )
-  const offsets = lengths.reduce<number[]>(
-    (acc, length) => [...acc, (acc.at(-1) ?? 0) + length],
-    [],
-  )
+  const ariaLabel =
+    label ??
+    segments
+      .map(
+        (segment, index) =>
+          `${segment.name ?? `segment ${index + 1}`}: ${segment.value}`,
+      )
+      .join(', ')
+  const innerRadius = Math.max(size / 2 - thickness, 0)
+  const outerRadius = size / 2 - 2
 
   return (
     <div className="donut-frame" style={{ width: size, height: size }}>
-      <svg
+      <div
         className="donut"
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
         role="img"
-        aria-label={
-          label ??
-          segments
-            .map(
-              (segment, index) =>
-                `${segment.name ?? `segment ${index + 1}`}: ${segment.value}`,
-            )
-            .join(', ')
-        }
+        aria-label={ariaLabel}
+        style={{ width: size, height: size }}
       >
-        <circle
-          className="donut-track"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          strokeWidth={thickness}
-        />
-        {total > 0 && (
-          <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
-            {segments.map((segment, index) => (
-              <circle
-                key={index}
-                className="donut-seg"
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                fill="none"
-                stroke={segment.color}
-                strokeWidth={thickness}
-                strokeDasharray={`${lengths[index]} ${circumference - lengths[index]}`}
-                strokeDashoffset={lengths[index] - offsets[index]}
-              />
-            ))}
-          </g>
+        {total > 0 ? (
+          <PieChart width={size} height={size}>
+            <Pie
+              data={segments}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={innerRadius}
+              outerRadius={Math.max(outerRadius, innerRadius + 1)}
+              startAngle={90}
+              endAngle={-270}
+              stroke="none"
+              isAnimationActive={false}
+            >
+              {segments.map((segment, index) => (
+                <Cell
+                  key={index}
+                  fill={segment.color}
+                  className="donut-seg"
+                />
+              ))}
+            </Pie>
+          </PieChart>
+        ) : (
+          <svg
+            className="donut"
+            width={size}
+            height={size}
+            viewBox={`0 0 ${size} ${size}`}
+            aria-hidden="true"
+          >
+            <circle
+              className="donut-track"
+              cx={size / 2}
+              cy={size / 2}
+              r={(size - thickness) / 2}
+              fill="none"
+              strokeWidth={thickness}
+            />
+          </svg>
         )}
-      </svg>
+      </div>
       {children && <div className="donut-center">{children}</div>}
     </div>
   )

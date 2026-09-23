@@ -1,12 +1,3 @@
-"""Export the Phase 6 logistic-regression baseline as a JSON weights file.
-
-The Rust backend runs the identical math (median imputation with zero
-fallback, standard scaling, sigmoid of the linear score) so the
-dashboard can serve real ML predictions without a Python runtime.
-Re-run this script if the baseline hyperparameters or FEATURE_COLUMNS
-change, and keep the Rust parity test in sync.
-"""
-
 from __future__ import annotations
 
 import json
@@ -16,9 +7,9 @@ from pathlib import Path
 ML_SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(ML_SRC))
 
-from repoinsight_ml.compare import build_candidate_models  # noqa: E402
-from repoinsight_ml.dataset import load_jsonl, split_chronologically  # noqa: E402
-from repoinsight_ml.features import FEATURE_COLUMNS, rows_to_features  # noqa: E402
+from repoinsight_ml.compare import build_candidate_models
+from repoinsight_ml.dataset import load_jsonl, split_chronologically
+from repoinsight_ml.features import FEATURE_COLUMNS, rows_to_features
 
 DATASET = Path(__file__).resolve().parents[1] / "data" / "dataset.jsonl"
 OUT = (

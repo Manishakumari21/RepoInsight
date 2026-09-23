@@ -28,12 +28,6 @@ def evaluate_calibration(
     rows: list[dict[str, Any]],
     method: str = "sigmoid",
 ) -> list[dict[str, Any]]:
-    """Calibrate candidates with validation data, evaluate on test data.
-
-    Chronological commit-based split is reused: base models fit on train,
-    sigmoid calibrator (cv=prefit) fits on validation only, both evaluated
-    on the untouched test period. Preprocessing stays inside each pipeline.
-    """
     split = split_chronologically(rows)
 
     if not split.train:
@@ -99,5 +93,4 @@ def evaluate_calibration_from_path(
     dataset_path: str | Path,
     method: str = "sigmoid",
 ) -> list[dict[str, Any]]:
-    """Load JSONL then run calibration evaluation."""
     return evaluate_calibration(load_jsonl(dataset_path), method=method)

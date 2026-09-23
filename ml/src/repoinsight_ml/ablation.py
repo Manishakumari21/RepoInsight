@@ -1,12 +1,3 @@
-"""Phase 9.8 feature-group ablation (existing features only).
-
-Uses the canonical ``FEATURE_COLUMNS`` order from ``features.py`` and the
-project's chronological split. The same train/test row sets back every
-configuration, so differences reflect the feature subset — never a
-different data split, and never future information (column selection
-cannot introduce rows outside the already leakage-safe split).
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -42,7 +33,6 @@ ABLATON_CONFIGS: list[tuple[str, list[str]]] = [
 
 
 def columns_for(groups: list[str]) -> list[str]:
-    """Canonical columns for feature groups, in canonical order."""
     wanted: set[str] = set()
     for group in groups:
         if group not in FEATURE_GROUPS:
@@ -55,12 +45,6 @@ def run_ablation(
     split: DatasetSplit,
     model_name: str = "logistic_regression",
 ) -> list[dict[str, Any]]:
-    """Evaluate every ablation configuration on one fixed split.
-
-    Only the Phase 6.1 logistic-regression baseline is supported: the
-    goal is to show how performance changes when feature groups are
-    removed, not to compare algorithms (see ``compare.py``).
-    """
     if model_name != "logistic_regression":
         raise ValueError(f"unsupported ablation model: {model_name}")
 

@@ -25,13 +25,6 @@ def build_recommendations(
     historical_examples: list[dict[str, Any]],
     top_n: int = 3,
 ) -> list[str]:
-    """Convert actual evidence into hedged developer guidance.
-
-    Every recommendation is backed by observed evidence (model,
-    historical, co-change or structural). With no evidence, the result
-    is an empty list — never generic filler. Language stays
-    associational: "consider", "check whether", "suggest".
-    """
     if top_n < 1:
         raise ValueError("top_n must be >= 1")
     if not file_path or not evidence:

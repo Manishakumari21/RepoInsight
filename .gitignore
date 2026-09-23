@@ -1,34 +1,25 @@
-# Rust
 target/
 
-# Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
 
-# Node
 node_modules/
 dist/
 
-# Environment
 .env
 .env.*
 
-# ML artifacts (generated, never commit)
 ml/artifacts/
 
-# Generated ML datasets
 ml/data/*.jsonl
 
-# Python package metadata
 ml/src/repoinsight_ml.egg-info/
 
-# OS / Editor
 .DS_Store
 .vscode/
 .idea/
-# Generated benchmark results
 ml/*_results.json
 ml/benchmark_*.json
 ml/error_analysis.json

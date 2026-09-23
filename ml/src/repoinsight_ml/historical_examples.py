@@ -11,14 +11,6 @@ def find_historical_examples(
     file_path: str,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """Find real past events relevant to a predicted file.
-
-    Only rows with a timestamp strictly before the target are used, so
-    explaining a historical prediction never leaks future commits.
-    Event types: "prior_change" (the same file changed before) and
-    "co_change" (other files changed in the same earlier commits).
-    Returns an empty list when nothing relevant exists — never invented.
-    """
     if limit < 1:
         raise ValueError("limit must be >= 1")
     if not file_path:

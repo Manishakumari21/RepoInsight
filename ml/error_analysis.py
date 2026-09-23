@@ -1,17 +1,3 @@
-"""Phase 9.9 error analysis (real datasets only).
-
-Trains each candidate model on the chronological train split, predicts
-the test split, and reports observed false-positive / false-negative
-patterns with dataset context. Language is associational ("observed
-in", "associated with") — no causal claims.
-
-Usage:
-    python ml/error_analysis.py \\
-        --repo repoinsight ml/data/dataset.jsonl \\
-        --repo repo-ranger ml/data/repo-ranger.jsonl \\
-        --out ml/error_analysis.json [--models logistic_regression]
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -27,10 +13,10 @@ ML_SRC = Path(__file__).resolve().parent / "src"
 sys.path.insert(0, str(ML_SRC))
 sys.path.insert(0, str(ML_SRC.parent / "scripts"))
 
-from repoinsight_ml.ablation import FEATURE_GROUPS  # noqa: E402
-from repoinsight_ml.compare import build_candidate_models  # noqa: E402
-from repoinsight_ml.dataset import load_jsonl, split_chronologically  # noqa: E402
-from repoinsight_ml.features import FEATURE_COLUMNS, rows_to_features  # noqa: E402
+from repoinsight_ml.ablation import FEATURE_GROUPS
+from repoinsight_ml.compare import build_candidate_models
+from repoinsight_ml.dataset import load_jsonl, split_chronologically
+from repoinsight_ml.features import FEATURE_COLUMNS, rows_to_features
 
 MAX_EXAMPLES_PER_CLASS = 25
 

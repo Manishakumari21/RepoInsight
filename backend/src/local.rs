@@ -83,15 +83,26 @@ async fn run_git(path: &Path, args: &[&str]) -> Result<String> {
 }
 
 pub async fn ensure_git_repo(path: &Path) -> Result<(), LocalRepoError> {
-    match run_git(path, &["rev-parse", "--git-dir"]).await {
+    let path_owned = path.to_owned();
+    tokio::task::spawn_blocking(move || match git2::Repository::open(&path_owned) {
         Ok(_) => Ok(()),
         Err(error) => {
-            if let Some(local) = error.downcast_ref::<LocalRepoError>() {
-                return Err(local.clone());
+            use git2::ErrorCode::*;
+            match error.code() {
+                NotFound => Err(LocalRepoError::NotGit),
+                _ => {
+                    let message = error.message().to_ascii_lowercase();
+                    if message.contains("permission") {
+                        Err(LocalRepoError::Permission)
+                    } else {
+                        Err(LocalRepoError::GitError)
+                    }
+                }
             }
-            Err(LocalRepoError::GitError)
         }
-    }
+    })
+    .await
+    .map_err(|_| LocalRepoError::GitError)?
 }
 
 pub async fn load_local_repo(raw_path: &str) -> Result<LoadedLocalRepo> {
@@ -100,8 +111,6 @@ pub async fn load_local_repo(raw_path: &str) -> Result<LoadedLocalRepo> {
         .map(|timed| timed.repo)
 }
 
-/// Loaded repository plus honest per-stage timings (Phase 9
-/// instrumentation). Stages that did not complete stay `None`.
 pub struct TimedLocalRepo {
     pub repo: LoadedLocalRepo,
     pub timings: AnalysisTimings,
@@ -124,17 +133,22 @@ pub async fn load_local_repo_timed(raw_path: &str) -> Result<TimedLocalRepo> {
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| canonical.to_string_lossy().into_owned());
 
-    let default_branch = run_git(&canonical, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .await
-        .map(|branch| branch.trim().to_owned())
-        .map(|branch| {
-            if branch.is_empty() || branch == "HEAD" {
-                "HEAD".to_owned()
-            } else {
-                branch
-            }
-        })
-        .unwrap_or_else(|_| "HEAD".to_owned());
+    let default_branch = tokio::task::spawn_blocking({
+        let canonical = canonical.clone();
+        move || {
+            git2::Repository::open(&canonical)
+                .ok()
+                .and_then(|repo| {
+                    repo.head()
+                        .ok()
+                        .and_then(|head| head.shorthand().map(str::to_owned))
+                })
+                .filter(|branch| !branch.is_empty())
+                .unwrap_or_else(|| "HEAD".to_owned())
+        }
+    })
+    .await
+    .map_err(|error| anyhow!("local branch task failed: {error}"))?;
 
     let stage = Instant::now();
     let tree = load_tree(&canonical, &default_branch).await?;
@@ -145,8 +159,6 @@ pub async fn load_local_repo_timed(raw_path: &str) -> Result<TimedLocalRepo> {
     let commits = load_commits(&canonical).await?;
     timings.commit_loading_ms = Some(elapsed_ms(stage));
 
-    // Blocking file I/O over the whole working tree: isolate it on the
-    // blocking pool so async workers stay responsive to e.g. /health.
     let stage = Instant::now();
     let sources = tokio::task::spawn_blocking({
         let canonical = canonical.clone();
@@ -176,56 +188,76 @@ pub async fn load_local_repo_timed(raw_path: &str) -> Result<TimedLocalRepo> {
 }
 
 async fn load_tree(path: &Path, branch: &str) -> Result<Vec<RepositoryFile>> {
-    let revision = if branch.is_empty() { "HEAD" } else { branch };
-    let output = match run_git(path, &["ls-tree", "-r", "-l", "-z", revision]).await {
-        Ok(output) => output,
-        Err(_) => run_git(path, &["ls-tree", "-r", "-l", "-z", "HEAD"]).await?,
+    let path_owned = path.to_owned();
+    let revision = if branch.is_empty() {
+        "HEAD".to_owned()
+    } else {
+        branch.to_owned()
     };
+    tokio::task::spawn_blocking(move || load_tree_git2(&path_owned, &revision))
+        .await
+        .map_err(|error| anyhow!("tree loading task failed: {error}"))?
+}
 
+fn load_tree_git2(path: &Path, revision: &str) -> Result<Vec<RepositoryFile>> {
+    let repo = git2::Repository::open(path)
+        .with_context(|| "Unable to read Git history from the repository.")?;
+    let object = repo
+        .revparse_single(revision)
+        .or_else(|_| repo.revparse_single("HEAD"))
+        .with_context(|| "Unable to read Git history from the repository.")?;
+    let tree = object
+        .peel_to_tree()
+        .with_context(|| "Unable to read Git history from the repository.")?;
     let mut files = Vec::new();
-    for entry in output.split('\0') {
-        if entry.trim().is_empty() {
-            continue;
-        }
-        // Format: "<mode> <type> <sha>\t<size>\t<path>"
-        // Size may be "-" for blobs; fallback to filesystem size.
-        let Some((meta, rel)) = entry.split_once('\t') else {
-            continue;
-        };
-        let meta_parts: Vec<&str> = meta.split_whitespace().collect();
-        if meta_parts.len() < 3 {
-            continue;
-        }
-        let kind = meta_parts[1].to_owned();
-        let sha = meta_parts[2].to_owned();
-        let mut segments = rel.split('\t');
-        let size_token = segments.next().unwrap_or("-");
-        let rel_path = segments.next().unwrap_or(size_token);
-        let rel_path = rel_path.trim();
-        if rel_path.is_empty() || kind != "blob" {
-            continue;
-        }
-        let size = size_token.parse::<u64>().ok().or_else(|| {
-            std::fs::metadata(path.join(rel_path))
-                .ok()
-                .filter(|metadata| metadata.is_file())
-                .map(|metadata| metadata.len())
-        });
-        files.push(RepositoryFile {
-            path: rel_path.to_owned(),
-            kind: "blob".to_owned(),
-            size,
-            sha,
-            url: String::new(),
-        });
-    }
+
+    collect_blobs(&repo, &tree, "", &mut files)?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
 }
 
+fn collect_blobs(
+    repo: &git2::Repository,
+    tree: &git2::Tree<'_>,
+    prefix: &str,
+    files: &mut Vec<RepositoryFile>,
+) -> Result<()> {
+    for entry in tree.iter() {
+        let name = entry.name().unwrap_or_default();
+        let rel = if prefix.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        match entry.kind() {
+            Some(git2::ObjectType::Tree) => {
+                if let Ok(obj) = entry.to_object(repo)
+                    && let Ok(subtree) = obj.peel_to_tree()
+                {
+                    collect_blobs(repo, &subtree, &rel, files)?;
+                }
+            }
+            Some(git2::ObjectType::Blob) => {
+                let size = entry
+                    .to_object(repo)
+                    .ok()
+                    .and_then(|obj| obj.peel_to_blob().ok())
+                    .map(|blob| blob.size() as u64);
+                files.push(RepositoryFile {
+                    path: rel,
+                    kind: "blob".to_owned(),
+                    size,
+                    sha: entry.id().to_string(),
+                    url: String::new(),
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 async fn load_commits(path: &Path) -> Result<Vec<Commit>> {
-    // Single git log invocation emitting both numstat (additions/deletions)
-    // and name-status (A/M/D/R/...) per commit. Bounded to MAX_LOCAL_COMMITS.
     let output = run_git(
         path,
         &[
@@ -297,7 +329,7 @@ impl CommitBuilder {
         if trimmed.is_empty() {
             return;
         }
-        // numstat lines: "<adds>\t<dels>\t<path>"
+
         let tab_parts: Vec<&str> = trimmed.split('\t').collect();
         if tab_parts.len() == 3
             && tab_parts[0]
@@ -316,7 +348,7 @@ impl CommitBuilder {
             self.numstat.insert(path, (additions, deletions));
             return;
         }
-        // name-status lines: "<STATUS>\t<path>" or "R100\t<old>\t<new>"
+
         if tab_parts.len() >= 2 {
             let status_token = tab_parts[0].trim();
             let status_char = status_token.chars().next().unwrap_or('M');
@@ -408,7 +440,7 @@ impl CommitBuilder {
 
 fn normalize_git_path(raw: &str) -> String {
     let mut path = raw.trim().trim_matches('"').to_owned();
-    // numstat rename format: "{old => new}" or "old => new"
+
     if path.contains("=>") {
         if let Some(braced) = path
             .strip_prefix('{')
@@ -479,7 +511,7 @@ fn load_sources(canonical: &Path, tree: &[RepositoryFile]) -> Result<Vec<SourceF
             continue;
         }
         let absolute = canonical.join(&file.path);
-        // Containment check: never escape the selected repository.
+
         if !absolute.starts_with(canonical) {
             continue;
         }
@@ -710,7 +742,7 @@ mod tests {
         let loaded = runtime()
             .block_on(load_local_repo(&repo.path_str()))
             .expect("repo loads");
-        // Same structs the GitHub pipeline uses.
+
         let _: &Vec<RepositoryFile> = &loaded.tree;
         let _: &Vec<Commit> = &loaded.commits;
         let _: &Vec<SourceFile> = &loaded.sources;
@@ -720,8 +752,6 @@ mod tests {
 
     #[test]
     fn local_source_needs_no_github_token() {
-        // SAFETY: tests run single-threaded per test binary here; no concurrent
-        // env access in this test.
         unsafe {
             std::env::remove_var("GITHUB_TOKEN");
         }

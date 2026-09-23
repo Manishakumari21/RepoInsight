@@ -7,7 +7,6 @@ import pandas as pd
 
 
 FEATURE_COLUMNS = [
-    # Structural
     "file_size_bytes",
     "lines_of_code",
     "function_count",
@@ -18,7 +17,6 @@ FEATURE_COLUMNS = [
     "coupling",
     "num_dependents",
 
-    # Historical
     "previous_change_count",
     "historical_churn",
     "contributor_count",
@@ -26,7 +24,6 @@ FEATURE_COLUMNS = [
     "recent_change_frequency",
     "historical_cochange_frequency",
 
-    # Temporal
     "recent_change_sequence_count",
     "previous_files_changed_count",
     "change_window_count",
@@ -41,7 +38,6 @@ FEATURE_COLUMNS = [
 def rows_to_features(
     rows: list[dict[str, Any]],
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """Convert Phase 5 dataset rows into the ML feature matrix and target."""
 
     features: list[dict[str, float]] = []
     labels: list[int] = []
@@ -53,7 +49,6 @@ def rows_to_features(
 
         features.append(
             {
-                # Structural
                 "file_size_bytes": float(structural["file_size_bytes"]),
                 "lines_of_code": float(structural["lines_of_code"]),
                 "function_count": float(structural["function_count"]),
@@ -72,7 +67,6 @@ def rows_to_features(
                 "coupling": float(structural["coupling"]),
                 "num_dependents": float(structural["num_dependents"]),
 
-                # Historical
                 "previous_change_count": float(
                     historical["previous_change_count"]
                 ),
@@ -92,7 +86,6 @@ def rows_to_features(
                     historical["historical_cochange_frequency"]
                 ),
 
-                # Temporal
                 "recent_change_sequence_count": float(
                     temporal["recent_change_sequence_count"]
                 ),

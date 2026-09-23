@@ -14,12 +14,6 @@ from .train import build_baseline_model
 
 
 def build_candidate_models() -> dict[str, Pipeline]:
-    """Build Phase 6.2 CPU-friendly candidates plus the Phase 6.1 baseline.
-
-    Tree models use imputation only (no scaling). Hyperparameters are
-    untuned defaults kept small for an 8 GB laptop. Random states are
-    fixed for determinism.
-    """
     return {
         "logistic_regression": build_baseline_model(),
         "random_forest": Pipeline(
@@ -53,11 +47,6 @@ def build_candidate_models() -> dict[str, Pipeline]:
 
 
 def compare_models(dataset_path: str | Path) -> list[dict[str, Any]]:
-    """Fit each candidate on the same chronological train split.
-
-    Returns one dict per model with model name and comparable metrics.
-    No ranking is applied here.
-    """
     rows = load_jsonl(dataset_path)
     split = split_chronologically(rows)
 

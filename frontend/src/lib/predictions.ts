@@ -17,7 +17,7 @@ export interface PredictionFilters {
   model: string
 }
 
-/** Probability band; mirrors the documented confidence thresholds. */
+
 export function probabilityBand(probability: number): 'high' | 'medium' | 'low' {
   const strength = Math.max(probability, 1 - probability)
   if (strength >= 0.8) return 'high'

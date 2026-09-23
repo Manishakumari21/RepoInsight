@@ -21,13 +21,6 @@ def evaluate_feature_importance(
     n_repeats: int = PERMUTATION_REPEATS,
     random_state: int = PERMUTATION_RANDOM_STATE,
 ) -> list[dict[str, Any]]:
-    """Compute feature importance on validation data.
-
-    Models fit on chronological train only; importance is measured on
-    validation (test untouched, no refit). Native importances operate on
-    pipeline-transformed features, which preserve FEATURE_COLUMNS order
-    (imputation keeps 23 columns, scaler preserves order).
-    """
     split = split_chronologically(rows)
 
     if not split.train:
@@ -99,7 +92,6 @@ def top_features(
     n: int = 10,
     method: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the top-N features for a model, sorted by importance."""
     filtered = [r for r in results if r["model"] == model]
     if method is not None:
         filtered = [r for r in filtered if r["method"] == method]
@@ -111,7 +103,6 @@ def evaluate_feature_importance_from_path(
     n_repeats: int = PERMUTATION_REPEATS,
     random_state: int = PERMUTATION_RANDOM_STATE,
 ) -> list[dict[str, Any]]:
-    """Load JSONL then compute feature importance."""
     return evaluate_feature_importance(
         load_jsonl(dataset_path),
         n_repeats=n_repeats,

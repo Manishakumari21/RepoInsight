@@ -17,7 +17,6 @@ pub struct HistoricalFeatures {
 }
 
 impl HistoricalFeatures {
-    /// Zero history for files with no prior changes (e.g. first targets).
     #[allow(
         dead_code,
         reason = "Phase 5 library API: used by dataset construction and unit tests"
@@ -35,11 +34,6 @@ impl HistoricalFeatures {
     }
 }
 
-/// Commit-aware historical features using only commits strictly before
-/// `cutoff_ts` (exclusive). `commits` must be timestamp-ordered; entries
-/// without a usable timestamp are skipped. Unlike the repository-level
-/// snapshot above, this never observes the target commit or any future
-/// commit, and contributor counts are per-file rather than repository-wide.
 #[allow(
     dead_code,
     reason = "Phase 5 library API: used by dataset construction and unit tests"

@@ -163,10 +163,25 @@ impl GithubClient {
             || message.contains("eof")
     }
 
-    fn transient_delay(retries: u32) -> Duration {
-        let millis = 300_u64.saturating_mul(1_u64 << retries.saturating_sub(1).min(4));
+    fn transient_backoff() -> backoff::ExponentialBackoff {
+        backoff::ExponentialBackoffBuilder::new()
+            .with_initial_interval(Duration::from_millis(300))
+            .with_randomization_factor(0.0)
+            .with_multiplier(2.0)
+            .with_max_interval(Duration::from_secs(5))
+            .with_max_elapsed_time(None)
+            .build()
+    }
 
-        Duration::from_millis(millis.min(5_000))
+    fn transient_delay(retries: u32) -> Duration {
+        if retries == 0 {
+            return Duration::from_millis(300);
+        }
+        let policy = Self::transient_backoff();
+        let base = policy.initial_interval.as_millis() as f64;
+        let scaled = base * policy.multiplier.powi(retries.saturating_sub(1) as i32);
+        let capped = scaled.min(policy.max_interval.as_millis() as f64);
+        Duration::from_millis(capped as u64)
     }
 
     fn is_rate_limited(status: StatusCode, headers: &HeaderMap) -> bool {

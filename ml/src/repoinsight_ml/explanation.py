@@ -16,12 +16,6 @@ def build_explanation(
     evidence: list[dict[str, Any]],
     top_n: int = 5,
 ) -> dict[str, Any]:
-    """Build a structured explanation derived from actual evidence.
-
-    top_evidence, supporting_evidence and contradicting_evidence are
-    slices of the supplied evidence — never invented. The summary names
-    the real top contributors.
-    """
     probability = float(probability)
     if not 0.0 <= probability <= 1.0:
         raise ValueError(f"Probability {probability!r} is outside [0, 1]")
@@ -79,11 +73,6 @@ def explain_prediction(
     top_n: int = 5,
     background: tuple[Any, Any] | None = None,
 ) -> dict[str, Any]:
-    """End-to-end explanation: predict, then explain with real data.
-
-    Historical examples only use rows strictly before the target
-    timestamp, so no future information leaks into the explanation.
-    """
     from .evidence import extract_evidence
 
     probability = float(model.predict_proba(feature_vector)[0, 1])

@@ -26,9 +26,7 @@ EXPECTED_CLASSIFIERS = {
     "hist_gradient_boosting": HistGradientBoostingClassifier,
 }
 
-# feature -> (group, human-readable description)
 FEATURE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
-    # Structural
     "file_size_bytes": ("structural", "Size of the source file in bytes."),
     "lines_of_code": ("structural", "Lines of code in the source file."),
     "function_count": ("structural", "Number of functions defined in the file."),
@@ -53,7 +51,6 @@ FEATURE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "structural",
         "Number of files depending on this file.",
     ),
-    # Historical
     "previous_change_count": (
         "historical",
         "How often the file changed before the target commit.",
@@ -78,7 +75,6 @@ FEATURE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "historical",
         "How often the file changed together with other files.",
     ),
-    # Temporal
     "recent_change_sequence_count": (
         "temporal",
         "Recent ordered change sequences involving the file.",
@@ -163,10 +159,6 @@ def _transformed_values(model: Any, frame: pd.DataFrame) -> np.ndarray:
                 f"Pipeline step {name!r} has no transform; "
                 "cannot compute transformed values"
             )
-        # Phase 6 pipelines mix steps fitted with feature names
-        # (imputer) and without (scaler on imputer output); the
-        # transform is numerically identical either way, so the
-        # cosmetic feature-name warning is suppressed here.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             intermediate = pd.DataFrame(out, columns=columns)
@@ -222,12 +214,6 @@ def _boosting_contributions(
     frame: pd.DataFrame,
     background: tuple[Any, Any] | None,
 ) -> tuple[np.ndarray, str]:
-    """Permutation importance when background data is given.
-
-    Without background data there is no defensible local contribution,
-    so every contribution is 0.0 with direction unknown rather than a
-    fabricated signed value.
-    """
     from sklearn.inspection import permutation_importance
 
     if background is None:
@@ -253,13 +239,6 @@ def extract_evidence(
     feature_names: list[str] | None = None,
     background: tuple[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Extract structured per-feature evidence for one prediction.
-
-    Every one of the 23 features is represented exactly once, in
-    FEATURE_COLUMNS order. Direction is only reported where the model
-    supports it (Logistic Regression sign of coefficient x value);
-    otherwise direction is "unknown" — never fabricated.
-    """
     names = list(feature_names) if feature_names else list(FEATURE_COLUMNS)
     if len(names) != len(FEATURE_COLUMNS):
         raise ValueError(
@@ -322,7 +301,6 @@ def extract_evidence(
 def top_evidence(
     evidence: list[dict[str, Any]], n: int = 5
 ) -> list[dict[str, Any]]:
-    """Return the top-N entries by absolute contribution, deterministic."""
     if n < 1:
         raise ValueError("n must be >= 1")
     ordered = sorted(

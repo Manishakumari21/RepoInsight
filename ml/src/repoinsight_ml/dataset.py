@@ -18,7 +18,6 @@ REQUIRED_TOP_LEVEL_FIELDS = {
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    """Load and validate the Phase 5 dataset JSONL file."""
     path = Path(path)
 
     if not path.is_file():
@@ -77,7 +76,19 @@ def split_chronologically(
     train_ratio: float = 0.70,
     validation_ratio: float = 0.15,
 ) -> DatasetSplit:
-    """Split dataset chronologically while keeping commits intact."""
+    """Split dataset chronologically while keeping commits intact.
+
+    Ordering is deterministic by ``(timestamp, commit_sha, file_path)``
+    via :func:`numpy.lexsort`.  Commit cut points are derived with
+    :class:`sklearn.model_selection.TimeSeriesSplit` concepts --
+    chronological expanding splits via
+    :func:`sklearn.model_selection.train_test_split` with
+    ``shuffle=False`` -- applied to the commit index array and mapped
+    back to commit SHAs so no commit is ever divided across splits.
+    """
+
+    import numpy as np
+    from sklearn.model_selection import train_test_split
 
     if not 0 < train_ratio < 1:
         raise ValueError("train_ratio must be between 0 and 1")
@@ -90,14 +101,20 @@ def split_chronologically(
             "train_ratio + validation_ratio must be less than 1"
         )
 
-    ordered = sorted(
-        rows,
-        key=lambda row: (
-            int(row["timestamp"]),
-            str(row["commit_sha"]),
-            str(row["file_path"]),
-        ),
-    )
+    if not rows:
+        ordered: list[dict[str, Any]] = []
+    else:
+        timestamps = np.array(
+            [int(row["timestamp"]) for row in rows], dtype=np.int64
+        )
+        shas = np.array(
+            [str(row["commit_sha"]) for row in rows], dtype=object
+        )
+        paths = np.array(
+            [str(row["file_path"]) for row in rows], dtype=object
+        )
+        order = np.lexsort((paths, shas, timestamps))
+        ordered = [rows[i] for i in order.tolist()]
 
     commit_order: list[str] = []
     seen_commits: set[str] = set()
@@ -127,13 +144,22 @@ def split_chronologically(
     if train_count + validation_count >= commit_count:
         validation_count = max(1, commit_count - train_count - 1)
 
-    train_commits = set(commit_order[:train_count])
-    validation_commits = set(
-        commit_order[train_count : train_count + validation_count]
+    test_count = commit_count - train_count - validation_count
+
+    commit_index = np.arange(commit_count)
+    if test_count <= 0:
+        train_val_idx, test_idx = commit_index, np.empty(0, dtype=int)
+    else:
+        train_val_idx, test_idx = train_test_split(
+            commit_index, test_size=test_count, shuffle=False
+        )
+    train_idx, val_idx = train_test_split(
+        train_val_idx, test_size=validation_count, shuffle=False
     )
-    test_commits = set(
-        commit_order[train_count + validation_count :]
-    )
+
+    train_commits = {commit_order[int(i)] for i in train_idx.tolist()}
+    validation_commits = {commit_order[int(i)] for i in val_idx.tolist()}
+    test_commits = {commit_order[int(i)] for i in test_idx.tolist()}
 
     train = [row for row in ordered if row["commit_sha"] in train_commits]
     validation = [

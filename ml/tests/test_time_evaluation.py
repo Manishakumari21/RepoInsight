@@ -52,7 +52,7 @@ def _rows(n_commits=6, per_commit=4, single_class_window=False):
     for c in range(n_commits):
         for r in range(per_commit):
             if single_class_window and c == n_commits - 1:
-                label = 1  # last test window has one class only
+                label = 1
             else:
                 label = (r + c) % 2
             rows.append(_row(f"c{c}", 1000 + c * 100, f"f{r}.py", label))
@@ -65,19 +65,17 @@ def test_windows_preserve_commit_boundaries_and_order():
     assert len(windows) == 2
     for train_commits, test_commits in windows:
         assert not set(train_commits) & set(test_commits)
-    # Progressively newer: later test commits come after earlier ones.
     first_test = windows[0][1]
     second_test = windows[1][1]
     ts = {r["commit_sha"]: r["timestamp"] for r in rows}
     assert max(ts[s] for s in first_test) <= min(ts[s] for s in second_test)
-    # Expanding train: first train is subset of second train.
     assert set(windows[0][0]) <= set(windows[1][0])
 
 
 def test_results_have_required_fields_and_no_overlap():
     rows = _rows(n_commits=6, per_commit=4)
     results = evaluate_time_windows(rows, n_windows=2)
-    assert len(results) == 2 * 3  # windows * models
+    assert len(results) == 2 * 3
     for entry in results:
         assert set(entry) >= {
             "model",
@@ -113,7 +111,6 @@ def test_single_class_window_does_not_crash():
     assert results
     for entry in results:
         assert entry["precision"] is not None
-        # Safe AUC behavior: None when test has one class.
         if entry["window"] == 1:
             assert entry["roc_auc"] is None
             assert entry["pr_auc"] is None

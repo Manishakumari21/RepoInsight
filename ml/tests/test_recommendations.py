@@ -70,7 +70,7 @@ def test_hedged_language_and_determinism():
         ),
         historical_examples=[],
     )
-    assert len(recs) == 3  # capped by top_n
+    assert len(recs) == 3
     joined = " ".join(recs)
     assert "definitely" not in joined
     assert "will break" not in joined

@@ -33,7 +33,6 @@ def build_baseline_model() -> Pipeline:
 
 
 def train_baseline(dataset_path: str | Path) -> dict[str, Any]:
-    """Train and evaluate the baseline using a chronological split."""
 
     rows = load_jsonl(dataset_path)
     split = split_chronologically(rows)

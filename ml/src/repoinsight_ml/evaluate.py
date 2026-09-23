@@ -17,7 +17,6 @@ def evaluate_model(
     X: Any,
     y: Any,
 ) -> dict[str, float | None]:
-    """Evaluate binary classifier predictions and probabilities."""
 
     predictions = model.predict(X)
     probabilities = model.predict_proba(X)[:, 1]

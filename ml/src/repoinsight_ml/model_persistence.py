@@ -25,7 +25,6 @@ def build_metadata(
     model: Any,
     train_rows: int,
 ) -> dict[str, Any]:
-    """Build sidecar metadata for a persisted pipeline."""
     classifier = None
     try:
         classifier = model.named_steps["classifier"]
@@ -90,7 +89,6 @@ def load_model(path: str | Path) -> Any:
 
 
 def load_model_with_metadata(path: str | Path) -> tuple[Any, dict[str, Any]]:
-    """Load a pipeline plus its metadata, with the same validation."""
     src = Path(path)
     if not src.is_file():
         raise FileNotFoundError(f"Model artifact not found: {src}")
@@ -109,7 +107,6 @@ def load_model_with_metadata(path: str | Path) -> tuple[Any, dict[str, Any]]:
 
 
 def default_artifact_paths(artifact_dir: str | Path) -> dict[str, Path]:
-    """Return canonical artifact paths for all three candidates."""
     base = Path(artifact_dir)
     return {
         "logistic_regression": base / "logistic_regression.joblib",
@@ -122,11 +119,6 @@ def persist_candidate_models(
     models_with_rows: dict[str, tuple[Any, int]],
     artifact_dir: str | Path,
 ) -> dict[str, Path]:
-    """Save fitted candidate pipelines plus a combined metadata.json.
-
-    Does not train anything; callers pass already-fitted pipelines.
-    Returns the artifact paths written.
-    """
     import json
 
     base = Path(artifact_dir)

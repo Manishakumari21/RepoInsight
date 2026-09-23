@@ -10,18 +10,19 @@ from .features import rows_to_features
 
 
 def ordered_commits(rows: list[dict[str, Any]]) -> list[str]:
-    """Return commit SHAs ordered by (timestamp, sha)."""
-    ordered = sorted(
-        rows,
-        key=lambda row: (
-            int(row["timestamp"]),
-            str(row["commit_sha"]),
-        ),
+    import numpy as np
+
+    if not rows:
+        return []
+    timestamps = np.array(
+        [int(row["timestamp"]) for row in rows], dtype=np.int64
     )
+    shas = np.array([str(row["commit_sha"]) for row in rows], dtype=object)
+    order = np.lexsort((shas, timestamps))
     commits: list[str] = []
     seen: set[str] = set()
-    for row in ordered:
-        sha = str(row["commit_sha"])
+    for index in order.tolist():
+        sha = str(rows[int(index)]["commit_sha"])
         if sha not in seen:
             seen.add(sha)
             commits.append(sha)
@@ -32,11 +33,9 @@ def build_time_windows(
     rows: list[dict[str, Any]],
     n_windows: int = 3,
 ) -> list[tuple[list[str], list[str]]]:
-    """Split ordered commits into expanding train / next-fold test windows.
+    import numpy as np
+    from sklearn.model_selection import TimeSeriesSplit, train_test_split
 
-    Commits are never split across train and test. Train always contains
-    only commits strictly before the test period.
-    """
     if n_windows < 1:
         raise ValueError("n_windows must be >= 1")
 
@@ -48,21 +47,24 @@ def build_time_windows(
             f"got {n_commits}"
         )
 
-    n_folds = n_windows + 1
-    fold_size = n_commits // n_folds
-    remainder = n_commits % n_folds
-
-    folds: list[list[str]] = []
-    start = 0
-    for i in range(n_folds):
-        size = fold_size + (1 if i < remainder else 0)
-        folds.append(commits[start : start + size])
-        start += size
-
+    commit_index = np.arange(n_commits)
     windows: list[tuple[list[str], list[str]]] = []
-    for i in range(n_windows):
-        train_commits = [sha for fold in folds[: i + 1] for sha in fold]
-        test_commits = folds[i + 1]
+    if n_windows == 1:
+        test_size = max(1, n_commits // 2)
+        train_idx, test_idx = train_test_split(
+            commit_index, test_size=test_size, shuffle=False
+        )
+        windows.append(
+            (
+                [commits[int(i)] for i in np.asarray(train_idx).tolist()],
+                [commits[int(i)] for i in np.asarray(test_idx).tolist()],
+            )
+        )
+        return windows
+    splitter = TimeSeriesSplit(n_splits=n_windows)
+    for train_idx, test_idx in splitter.split(commit_index):
+        train_commits = [commits[int(i)] for i in train_idx.tolist()]
+        test_commits = [commits[int(i)] for i in test_idx.tolist()]
         windows.append((train_commits, test_commits))
 
     return windows
@@ -72,7 +74,6 @@ def evaluate_time_windows(
     rows: list[dict[str, Any]],
     n_windows: int = 3,
 ) -> list[dict[str, Any]]:
-    """Evaluate all candidates on progressively newer test periods."""
     windows = build_time_windows(rows, n_windows=n_windows)
 
     by_commit: dict[str, list[dict[str, Any]]] = {}
@@ -119,5 +120,4 @@ def evaluate_time_windows_from_path(
     dataset_path: str | Path,
     n_windows: int = 3,
 ) -> list[dict[str, Any]]:
-    """Load JSONL then run time-based evaluation."""
     return evaluate_time_windows(load_jsonl(dataset_path), n_windows=n_windows)

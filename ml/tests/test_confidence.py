@@ -7,7 +7,6 @@ def test_documented_thresholds():
     assert describe_confidence(0.55)["confidence_level"] == "low"
     assert describe_confidence(0.70)["confidence_level"] == "medium"
     assert describe_confidence(0.90)["confidence_level"] == "high"
-    # Strength is symmetric: confident negatives are confident too.
     assert describe_confidence(0.10)["confidence_level"] == "high"
     assert describe_confidence(0.50)["confidence_level"] == "low"
 

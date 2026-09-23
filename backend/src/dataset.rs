@@ -1,17 +1,3 @@
-//! Phase 5.4–5.7: ML dataset construction over repository history.
-//!
-//! Prediction unit: ONE ROW = one file in one historical target commit.
-//! Label `1` marks files changed by the target commit; label `0` marks
-//! files that provably existed before it (seen in earlier commits and
-//! present in the structural snapshot) but were not changed by it.
-//!
-//! Leakage rule: every feature for a target at time `T` uses only commits
-//! with timestamps strictly before `T`. Commits without a usable timestamp
-//! never become targets and never contribute to prefixes. Structural
-//! features come from the current tree snapshot (proxy, documented in
-//! `docs`/phases); all historical, temporal, and label information is
-//! strictly prefix-based.
-
 #![allow(
     dead_code,
     reason = "Phase 5 library API in a binary crate: exercised by unit tests, consumed by Phase 6/export tooling, not by the serving binary"
@@ -65,12 +51,6 @@ pub struct DatasetRow {
     pub label: u8,
 }
 
-/// Build one row per (eligible target commit, candidate file).
-///
-/// `structural` is the current-tree snapshot keyed by path; `dependencies`
-/// are the current static edges (proxy for historical structure).
-/// Commits are processed oldest-first; rows are emitted in that order with
-/// files sorted, so generation is deterministic.
 pub fn build_dataset(
     commits: &[Commit],
     structural: &HashMap<String, StructuralFeatures>,
@@ -262,12 +242,6 @@ pub struct ValidationReport {
     pub stats: DatasetStats,
 }
 
-/// Validate rows against the commit history they were built from.
-///
-/// Flags empty paths/SHAs, non-binary labels, non-positive timestamps,
-/// duplicate (commit, file) rows, positives absent from their target, and
-/// negatives that never provably existed before their target. Statistics
-/// describe the valid rows only; nothing is discarded silently.
 pub fn validate_dataset(rows: &[DatasetRow], commits: &[Commit]) -> ValidationReport {
     let mut changed_by_commit: HashMap<&str, HashSet<String>> = HashMap::new();
     let mut known_before: HashMap<&str, HashSet<String>> = HashMap::new();
@@ -342,7 +316,6 @@ pub fn validate_dataset(rows: &[DatasetRow], commits: &[Commit]) -> ValidationRe
     }
 }
 
-/// Class distribution and coverage over valid rows.
 pub fn dataset_stats(rows: &[&DatasetRow]) -> DatasetStats {
     let total = rows.len();
     let positives = rows.iter().filter(|row| row.label == 1).count();
@@ -376,12 +349,6 @@ pub struct DatasetSplit {
     pub test: Vec<DatasetRow>,
 }
 
-/// Deterministic chronological split at whole-commit granularity.
-///
-/// Targets ordered by (timestamp, SHA) go oldest-first to train, then
-/// validation, then test per the configured ratios. Commits are never split
-/// across sets, rows are never shuffled, and histories with fewer than three
-/// targets stay entirely in train.
 pub fn split_chronologically(rows: Vec<DatasetRow>, config: &DatasetConfig) -> DatasetSplit {
     let mut targets: Vec<(i64, String)> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -424,8 +391,6 @@ pub fn split_chronologically(rows: Vec<DatasetRow>, config: &DatasetConfig) -> D
     split
 }
 
-/// Append rows as JSON Lines using only `serde_json` from the current
-/// dependency set. Returns the number of rows written.
 pub fn export_jsonl(rows: &[DatasetRow], path: &str) -> io::Result<usize> {
     let file = std::fs::File::create(path)?;
     let mut writer = io::BufWriter::new(file);
@@ -520,7 +485,7 @@ mod tests {
         assert!(positive_keys.contains(&("c3", "b.rs")));
 
         let negatives: Vec<&DatasetRow> = rows.iter().filter(|row| row.label == 0).collect();
-        // c3's only eligible negative is a.rs (c.rs never existed in history).
+
         assert_eq!(negatives.len(), 1);
         assert_eq!(negatives[0].commit_sha, "c3");
         assert_eq!(negatives[0].file_path, "a.rs");
@@ -543,7 +508,6 @@ mod tests {
         assert_eq!(row.historical.historical_churn, 10);
         assert_eq!(row.historical.time_since_last_change_secs, Some(100));
 
-        // c1 is the first target: empty prefix, zero history.
         let first = rows.iter().find(|row| row.commit_sha == "c1").unwrap();
         assert_eq!(first.historical.previous_change_count, 0);
         assert_eq!(first.historical.time_since_last_change_secs, None);

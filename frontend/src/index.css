@@ -1,5 +1,5 @@
 :root {
-  /* RepoInsight intelligence platform — single token system */
+
   --bg: #050b18;
   --bg-secondary: #081225;
   --surface: #0b1630;
@@ -28,7 +28,7 @@
   --warning: #fbbf24;
   --info: #22d3ee;
 
-  /* legacy aliases — all map into the single system */
+
   --bg-elev: var(--bg-secondary);
   --panel-bg: var(--surface);
   --panel-bg-hover: var(--surface-hover);

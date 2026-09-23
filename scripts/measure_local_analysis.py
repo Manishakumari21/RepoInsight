@@ -1,23 +1,3 @@
-"""Phase 9 external diagnostic: measure a full local-analysis request.
-
-Calls POST /api/local/timings on a running backend, records wall-clock
-time externally, and saves the observed timings + counts to a JSON file.
-
-Usage:
-    python scripts/measure_local_analysis.py --repo /path/to/repo --output /tmp/measure.json
-
-    # With a non-default backend:
-    python scripts/measure_local_analysis.py --repo /path/to/repo \\
-        --output /tmp/measure.json --base-url http://127.0.0.1:3000
-
-Notes:
-- The backend must already be running (`cargo run` in backend/).
-- Memory is NOT measured here on purpose: reliable peak-RSS needs
-  external profiling, e.g. `/usr/bin/time -v curl ...`.
-- Do NOT point this at huge repositories in automated tests; it is a
-  manual diagnostic tool.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -53,7 +33,7 @@ def main() -> int:
         with urllib.request.urlopen(request, timeout=args.timeout) as response:
             status = response.status
             payload = json.loads(response.read().decode("utf-8"))
-    except Exception as exc:  # noqa: BLE001 - diagnostic script, report and exit
+    except Exception as exc:
         print(f"request failed: {exc}")
         return 1
     wall_seconds = time.perf_counter() - start
