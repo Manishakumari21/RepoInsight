@@ -58,19 +58,11 @@ pub async fn analyze_repository(
     ))
 }
 
-/// Local Git entry point. Uses the same Phase 3/4/5 pipeline as GitHub mode;
-/// only the loader differs (local `git` history + working-tree files).
-/// CPU-bound analysis runs on the blocking pool so async workers stay
-/// responsive to lightweight requests such as `/health`.
 pub async fn analyze_local_repository(raw_path: &str) -> Result<RepositoryAnalysis> {
     let loaded = crate::local::load_local_repo(raw_path).await?;
     run_analysis_blocking(loaded).await
 }
 
-/// Timed local analysis (Phase 9 instrumentation): the real end-to-end
-/// pipeline — load, structural analysis, dataset construction — with
-/// honest per-stage timings. Fails exactly like the untimed path on
-/// error; no timings are fabricated.
 pub struct TimedAnalysis {
     pub repository_name: String,
     pub repository_branch: String,
@@ -97,9 +89,6 @@ pub async fn analyze_local_timed(raw_path: &str) -> Result<TimedAnalysis> {
     let repository_branch = default_branch.clone();
     let tree_paths: HashSet<String> = tree.iter().map(|file| file.path.clone()).collect();
 
-    // One blocking task for the whole CPU-bound tail (analysis +
-    // dataset construction share the same owned inputs, so no expensive
-    // clones); each stage is timed separately inside with `Instant`.
     let (analysis, structural_ms, dataset_row_count, dataset_ms) =
         tokio::task::spawn_blocking(move || {
             let stage = Instant::now();
@@ -132,8 +121,6 @@ pub async fn analyze_local_timed(raw_path: &str) -> Result<TimedAnalysis> {
     })
 }
 
-/// CPU-bound `analyze_loaded_data` isolated on the blocking pool.
-/// Same computation as before; only the executor changes.
 async fn run_analysis_blocking(loaded: LoadedLocalRepo) -> Result<RepositoryAnalysis> {
     let LoadedLocalRepo {
         name,
@@ -336,8 +323,6 @@ pub async fn build_ml_dataset(
     build_dataset_from_loaded(&files, &commits, &source_files)
 }
 
-/// Local Git dataset entry point. Same Phase 5 construction as GitHub mode.
-/// Dataset construction is CPU-bound: isolated on the blocking pool.
 pub async fn build_ml_dataset_local(raw_path: &str) -> Result<Vec<DatasetRow>> {
     let loaded = crate::local::load_local_repo(raw_path).await?;
     let LoadedLocalRepo {
@@ -352,8 +337,6 @@ pub async fn build_ml_dataset_local(raw_path: &str) -> Result<Vec<DatasetRow>> {
         .map_err(|error| anyhow::anyhow!("local dataset task failed: {error}"))?
 }
 
-/// Inputs needed for per-file predictions: leakage-safe dataset rows
-/// plus the commit history backing historical examples.
 pub struct PredictionInputs {
     pub rows: Vec<DatasetRow>,
     pub commits: Vec<Commit>,
@@ -386,8 +369,6 @@ pub async fn prediction_inputs(
     })
 }
 
-/// Local Git prediction inputs. Same construction as GitHub mode.
-/// Dataset construction is CPU-bound: isolated on the blocking pool.
 pub async fn prediction_inputs_local(raw_path: &str) -> Result<PredictionInputs> {
     let loaded = crate::local::load_local_repo(raw_path).await?;
     let LoadedLocalRepo {
@@ -405,6 +386,121 @@ pub async fn prediction_inputs_local(raw_path: &str) -> Result<PredictionInputs>
     .map_err(|error| anyhow::anyhow!("local prediction-input task failed: {error}"))??;
 
     Ok(PredictionInputs { rows, commits })
+}
+
+pub struct RippleInputs {
+    pub commits: Vec<Commit>,
+    pub edges: Vec<crate::analysis::dependencies::DependencyEdge>,
+    pub cochange_pairs: HashMap<(String, String), usize>,
+}
+
+fn ripple_inputs_from_loaded(
+    commits: &[Commit],
+    files: &[RepositoryFile],
+    source_files: &[SourceFile],
+) -> RippleInputs {
+    let file_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
+    let (_, file_edges) = analyze_source_files(source_files, &file_paths);
+    let (_, metrics) = history::analyze(commits);
+    RippleInputs {
+        commits: commits.to_vec(),
+        edges: file_edges,
+        cochange_pairs: metrics.cochange_pairs,
+    }
+}
+
+pub async fn ripple_inputs(client: &GithubClient, owner: &str, repo: &str) -> Result<RippleInputs> {
+    let repository = Repository::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch repository {owner}/{repo}"))?;
+    let files = RepositoryFile::fetch_tree(client, owner, repo, &repository.default_branch)
+        .await
+        .with_context(|| format!("failed to fetch repository tree for {owner}/{repo}"))?;
+    let commits = Commit::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch commits for {owner}/{repo}"))?;
+    let source_files = source::collect_source_files(client, &files)
+        .await
+        .with_context(|| format!("failed to collect source files for {owner}/{repo}"))?;
+    Ok(ripple_inputs_from_loaded(&commits, &files, &source_files))
+}
+
+pub async fn ripple_inputs_local(raw_path: &str) -> Result<RippleInputs> {
+    let loaded = crate::local::load_local_repo(raw_path).await?;
+    let LoadedLocalRepo {
+        tree,
+        commits,
+        sources,
+        ..
+    } = loaded;
+    tokio::task::spawn_blocking(move || ripple_inputs_from_loaded(&commits, &tree, &sources))
+        .await
+        .map_err(|error| anyhow::anyhow!("local ripple-input task failed: {error}"))
+}
+
+pub struct ImpactInputs {
+    pub commits: Vec<Commit>,
+    pub edges: Vec<crate::analysis::dependencies::DependencyEdge>,
+    pub cochange_pairs: HashMap<(String, String), usize>,
+    pub file_paths: Vec<String>,
+    pub contents: HashMap<String, String>,
+}
+
+fn impact_inputs_from_loaded(
+    commits: &[Commit],
+    files: &[RepositoryFile],
+    source_files: &[SourceFile],
+) -> ImpactInputs {
+    let file_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
+    let (_, file_edges) = analyze_source_files(source_files, &file_paths);
+    let (_, metrics) = history::analyze(commits);
+    let mut paths: Vec<String> = files
+        .iter()
+        .filter(|file| file.kind == "blob")
+        .map(|file| file.path.clone())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    let contents: HashMap<String, String> = source_files
+        .iter()
+        .map(|source| (source.path.clone(), source.content.clone()))
+        .collect();
+    ImpactInputs {
+        commits: commits.to_vec(),
+        edges: file_edges,
+        cochange_pairs: metrics.cochange_pairs,
+        file_paths: paths,
+        contents,
+    }
+}
+
+pub async fn impact_inputs(client: &GithubClient, owner: &str, repo: &str) -> Result<ImpactInputs> {
+    let repository = Repository::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch repository {owner}/{repo}"))?;
+    let files = RepositoryFile::fetch_tree(client, owner, repo, &repository.default_branch)
+        .await
+        .with_context(|| format!("failed to fetch repository tree for {owner}/{repo}"))?;
+    let commits = Commit::fetch(client, owner, repo)
+        .await
+        .with_context(|| format!("failed to fetch commits for {owner}/{repo}"))?;
+    let source_files = source::collect_source_files(client, &files)
+        .await
+        .with_context(|| format!("failed to collect source files for {owner}/{repo}"))?;
+    Ok(impact_inputs_from_loaded(&commits, &files, &source_files))
+}
+
+pub async fn impact_inputs_local(raw_path: &str) -> Result<ImpactInputs> {
+    let loaded = crate::local::load_local_repo(raw_path).await?;
+    let LoadedLocalRepo {
+        tree,
+        commits,
+        sources,
+        ..
+    } = loaded;
+    tokio::task::spawn_blocking(move || impact_inputs_from_loaded(&commits, &tree, &sources))
+        .await
+        .map_err(|error| anyhow::anyhow!("local impact-input task failed: {error}"))
 }
 
 fn build_dataset_from_loaded(
@@ -519,12 +615,14 @@ fn build_complexity_analysis(results: &[FileComplexity]) -> ComplexityAnalysis {
         .map(|result| result.complexity.cyclomatic as f64)
         .collect();
 
-    let mean = values.iter().sum::<f64>() / values.len() as f64;
-    let variance = values
-        .iter()
-        .map(|value| (value - mean).powi(2))
-        .sum::<f64>()
-        / values.len() as f64;
+    let mean = {
+        use statrs::statistics::Statistics;
+        values.clone().mean()
+    };
+    let variance = {
+        use statrs::statistics::Statistics;
+        values.clone().population_variance()
+    };
     let threshold = mean + variance.sqrt();
 
     ComplexityAnalysis {
@@ -539,8 +637,6 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// Minimal temp Git repo helper (mirrors `crate::local` test setup).
-    /// Never touches real user repositories.
     struct TempRepo {
         path: PathBuf,
     }
@@ -650,7 +746,6 @@ mod tests {
 
     #[test]
     fn timed_pipeline_handles_sparse_repo_without_panicking() {
-        // One commit, no parseable source files: counts stay zero, no panic.
         let repo = TempRepo::create(&[("notes.bin", "")], "binary only");
         std::fs::write(repo.path.join("notes.bin"), [0xff, 0xfe, 0x00])
             .expect("write binary fixture");
@@ -668,7 +763,7 @@ mod tests {
     fn timed_pipeline_error_path_fabricates_nothing() {
         let missing = std::env::temp_dir().join("repoinsight-analyzer-definitely-missing-xyz");
         let result = runtime().block_on(analyze_local_timed(&missing.to_string_lossy()));
-        // Err carries no timings struct at all: nothing to misread.
+
         assert!(result.is_err(), "missing path must fail");
     }
 }

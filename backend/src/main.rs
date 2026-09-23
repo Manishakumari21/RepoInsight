@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -5,7 +6,7 @@ use axum::{
     Json, Router,
     body::Body,
     debug_handler,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -126,11 +127,19 @@ async fn main() -> Result<()> {
             "/api/repositories/{owner}/{repo}/predictions",
             get(get_repository_predictions),
         )
+        .route(
+            "/api/repositories/{owner}/{repo}/ripple",
+            get(get_repository_ripple),
+        )
+        .route(
+            "/api/repositories/{owner}/{repo}/impact-simulation",
+            get(get_repository_impact),
+        )
         .route("/api/local/analysis", post(post_local_analysis))
         .route("/api/local/dataset", post(post_local_dataset))
         .route("/api/local/predictions", post(post_local_predictions))
-        // Phase 9 diagnostic: end-to-end local-pipeline timings + counts.
-        // Metadata only; dataset NDJSON and analysis contracts are untouched.
+        .route("/api/local/ripple", post(post_local_ripple))
+        .route("/api/local/impact-simulation", post(post_local_impact))
         .route("/api/local/timings", post(post_local_timings))
         .layer(cors)
         .with_state(state);
@@ -258,6 +267,268 @@ fn cached_json(body: Vec<u8>) -> Result<Response, ApiError> {
     Ok(response)
 }
 
+#[derive(Deserialize)]
+struct RippleQuery {
+    source: Option<String>,
+    file: Option<String>,
+    changed: Option<String>,
+    max_depth: Option<usize>,
+    min_confidence: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct LocalRippleRequest {
+    path: String,
+    source: Option<String>,
+    files: Option<Vec<String>>,
+    changed: Option<Vec<String>>,
+    max_depth: Option<usize>,
+    min_confidence: Option<f64>,
+}
+
+fn ripple_config_from(
+    max_depth: Option<usize>,
+    min_confidence: Option<f64>,
+) -> crate::analysis::ripple::RippleConfig {
+    let mut config = crate::analysis::ripple::RippleConfig::default();
+    if let Some(depth) = max_depth {
+        config.max_depth = depth.clamp(1, crate::analysis::ripple::MAX_RIPPLE_DEPTH);
+    }
+    if let Some(confidence) = min_confidence {
+        config.min_confidence = confidence.clamp(0.0, 1.0);
+    }
+    config
+}
+
+fn ripple_response_for(
+    source: &str,
+    changed: &std::collections::HashSet<String>,
+    inputs: &crate::analysis::analyzer::RippleInputs,
+    config: &crate::analysis::ripple::RippleConfig,
+) -> crate::analysis::ripple::RippleResponse {
+    crate::analysis::ripple::forecast(
+        source,
+        changed,
+        &inputs.commits,
+        &inputs.edges,
+        &inputs.cochange_pairs,
+        config,
+    )
+}
+
+#[debug_handler]
+async fn get_repository_ripple(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    Query(query): Query<RippleQuery>,
+) -> Result<Response, ApiError> {
+    let source = query
+        .source
+        .or(query.file)
+        .filter(|source| !source.trim().is_empty())
+        .ok_or_else(|| api_error(anyhow::anyhow!("missing required query parameter: source")))?;
+    let config = ripple_config_from(query.max_depth, query.min_confidence);
+    let use_cache =
+        query.max_depth.is_none() && query.min_confidence.is_none() && query.changed.is_none();
+    let changed: std::collections::HashSet<String> = query
+        .changed
+        .map(|changed| {
+            changed
+                .split(',')
+                .map(|file| file.trim().to_owned())
+                .filter(|file| !file.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let cache_key = format!("ripple:{owner}/{repo}:{source}");
+    if use_cache {
+        if let Some(body) = state.cache.get(&cache_key).await {
+            return cached_json(body);
+        }
+    }
+    match analysis::analyzer::ripple_inputs(&state.github, &owner, &repo).await {
+        Ok(inputs) => {
+            let changed = {
+                let mut set = changed;
+                set.insert(source.clone());
+                set
+            };
+            let response = tokio::task::spawn_blocking(move || {
+                ripple_response_for(&source, &changed, &inputs, &config)
+            })
+            .await
+            .map_err(|error| api_error(anyhow::anyhow!("ripple task failed: {error}")))?;
+            if let Ok(body) = serde_json::to_vec(&response) {
+                state.cache.insert(&cache_key, body).await;
+            }
+            Ok(Json(response).into_response())
+        }
+        Err(error) => Err(api_error(error)),
+    }
+}
+
+#[debug_handler]
+async fn post_local_ripple(
+    State(state): State<AppState>,
+    Json(request): Json<LocalRippleRequest>,
+) -> Result<Response, ApiError> {
+    let source = request
+        .source
+        .or_else(|| request.files.and_then(|files| files.into_iter().next()))
+        .filter(|source| !source.trim().is_empty())
+        .ok_or_else(|| api_error(anyhow::anyhow!("missing required field: source or files")))?;
+    let config = ripple_config_from(request.max_depth, request.min_confidence);
+    let changed: std::collections::HashSet<String> =
+        request.changed.unwrap_or_default().into_iter().collect();
+    let canonical = crate::local::validate_local_path(&request.path)
+        .map_err(|error| api_error(anyhow::anyhow!(error.to_string())))?;
+    let cache_key = format!("ripple:local:{}:{source}", canonical.to_string_lossy());
+    if let Some(body) = state.cache.get(&cache_key).await {
+        return cached_json(body);
+    }
+    match analysis::analyzer::ripple_inputs_local(&request.path).await {
+        Ok(inputs) => {
+            let changed = {
+                let mut set = changed;
+                set.insert(source.clone());
+                set
+            };
+            let response = tokio::task::spawn_blocking(move || {
+                ripple_response_for(&source, &changed, &inputs, &config)
+            })
+            .await
+            .map_err(|error| api_error(anyhow::anyhow!("local ripple task failed: {error}")))?;
+            if let Ok(body) = serde_json::to_vec(&response) {
+                state.cache.insert(&cache_key, body).await;
+            }
+            Ok(Json(response).into_response())
+        }
+        Err(error) => Err(api_error(error)),
+    }
+}
+
+#[derive(Deserialize)]
+struct ImpactQuery {
+    change_description: Option<String>,
+    max_results: Option<usize>,
+    include_low_confidence: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct LocalImpactRequest {
+    path: String,
+    change_description: Option<String>,
+    max_results: Option<usize>,
+    include_low_confidence: Option<bool>,
+}
+
+fn impact_config_from(
+    max_results: Option<usize>,
+    include_low_confidence: Option<bool>,
+) -> crate::analysis::impact::ImpactConfig {
+    let mut config = crate::analysis::impact::ImpactConfig::default();
+    if let Some(max) = max_results {
+        config.max_results = max.clamp(1, 100);
+    }
+    if let Some(include) = include_low_confidence {
+        config.include_low_confidence = include;
+    }
+    config
+}
+
+fn impact_response_for(
+    description: &str,
+    inputs: &crate::analysis::analyzer::ImpactInputs,
+    config: &crate::analysis::impact::ImpactConfig,
+) -> crate::analysis::impact::ImpactResponse {
+    let contents: HashMap<&str, &str> = inputs
+        .contents
+        .iter()
+        .map(|(path, content)| (path.as_str(), content.as_str()))
+        .collect();
+    let impact_inputs = crate::analysis::impact::ImpactInputs {
+        commits: &inputs.commits,
+        edges: &inputs.edges,
+        cochange_pairs: &inputs.cochange_pairs,
+        file_paths: inputs.file_paths.clone(),
+        contents,
+    };
+    crate::analysis::impact::simulate(description, &impact_inputs, config)
+}
+
+#[debug_handler]
+async fn get_repository_impact(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    Query(query): Query<ImpactQuery>,
+) -> Result<Response, ApiError> {
+    let description = query
+        .change_description
+        .filter(|description| !description.trim().is_empty())
+        .ok_or_else(|| {
+            api_error(anyhow::anyhow!(
+                "missing required query parameter: change_description"
+            ))
+        })?;
+    let config = impact_config_from(query.max_results, query.include_low_confidence);
+    let cache_key = format!("impact:{owner}/{repo}:{description}");
+    if query.max_results.is_none() && query.include_low_confidence.is_none() {
+        if let Some(body) = state.cache.get(&cache_key).await {
+            return cached_json(body);
+        }
+    }
+    match analysis::analyzer::impact_inputs(&state.github, &owner, &repo).await {
+        Ok(inputs) => {
+            let response = tokio::task::spawn_blocking(move || {
+                impact_response_for(&description, &inputs, &config)
+            })
+            .await
+            .map_err(|error| api_error(anyhow::anyhow!("impact task failed: {error}")))?;
+            if let Ok(body) = serde_json::to_vec(&response) {
+                state.cache.insert(&cache_key, body).await;
+            }
+            Ok(Json(response).into_response())
+        }
+        Err(error) => Err(api_error(error)),
+    }
+}
+
+#[debug_handler]
+async fn post_local_impact(
+    State(state): State<AppState>,
+    Json(request): Json<LocalImpactRequest>,
+) -> Result<Response, ApiError> {
+    let description = request
+        .change_description
+        .filter(|description| !description.trim().is_empty())
+        .ok_or_else(|| {
+            api_error(anyhow::anyhow!(
+                "missing required field: change_description"
+            ))
+        })?;
+    let config = impact_config_from(request.max_results, request.include_low_confidence);
+    let canonical = crate::local::validate_local_path(&request.path)
+        .map_err(|error| api_error(anyhow::anyhow!(error.to_string())))?;
+    let cache_key = format!("impact:local:{}:{description}", canonical.to_string_lossy());
+    if let Some(body) = state.cache.get(&cache_key).await {
+        return cached_json(body);
+    }
+    match analysis::analyzer::impact_inputs_local(&request.path).await {
+        Ok(inputs) => {
+            let response = tokio::task::spawn_blocking(move || {
+                impact_response_for(&description, &inputs, &config)
+            })
+            .await
+            .map_err(|error| api_error(anyhow::anyhow!("local impact task failed: {error}")))?;
+            if let Ok(body) = serde_json::to_vec(&response) {
+                state.cache.insert(&cache_key, body).await;
+            }
+            Ok(Json(response).into_response())
+        }
+        Err(error) => Err(api_error(error)),
+    }
+}
+
 #[debug_handler]
 async fn get_repository_dataset(
     State(state): State<AppState>,
@@ -287,7 +558,6 @@ async fn post_local_analysis(
     State(state): State<AppState>,
     Json(request): Json<LocalRepoRequest>,
 ) -> Result<Response, ApiError> {
-    // Validate first so the cache key is always a canonical repository path.
     let canonical = crate::local::validate_local_path(&request.path)
         .map_err(|error| api_error(anyhow::anyhow!(error.to_string())))?;
     let cache_key = format!("local:{}", canonical.to_string_lossy());
@@ -352,7 +622,6 @@ async fn post_local_predictions(
 
     match analysis::analyzer::prediction_inputs_local(&request.path).await {
         Ok(inputs) => {
-            // Pure CPU scoring: keep it off async workers.
             let response = tokio::task::spawn_blocking(move || {
                 prediction::predict_files(&inputs.rows, &inputs.commits)
             })
@@ -379,11 +648,6 @@ struct LocalTimingsRepo {
     branch: String,
 }
 
-/// Phase 9 diagnostic endpoint: runs the real local pipeline
-/// (load → analysis → dataset construction) and returns per-stage
-/// timings plus observed counts. On failure it returns the same
-/// mapped API error as the sibling endpoints — never fabricated
-/// timings. Not cached: every call measures a fresh run.
 #[debug_handler]
 async fn post_local_timings(
     Json(request): Json<LocalRepoRequest>,
