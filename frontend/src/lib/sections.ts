@@ -1,29 +1,68 @@
-export type DashboardSection = 'overview' | 'explore' | 'predict' | 'history'
+export type ViewId =
+  | 'overview'
+  | 'structure'
+  | 'dependencies'
+  | 'timeline'
+  | 'coupling'
+  | 'predictions'
+  | 'evidence'
 
-export const SECTIONS: { id: DashboardSection; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'explore', label: 'Explore' },
-  { id: 'predict', label: 'Predict' },
-  { id: 'history', label: 'History' },
+export interface NavItem {
+  id: ViewId
+  label: string
+  group: string
+  tooltip: string
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  {
+    id: 'overview',
+    label: 'Overview',
+    group: 'Overview',
+    tooltip: 'Repository briefing: activity, areas, and what deserves attention.',
+  },
+  {
+    id: 'structure',
+    label: 'Structure',
+    group: 'Repository',
+    tooltip: 'Explore how the repository is organized: files, modules, dependencies.',
+  },
+  {
+    id: 'dependencies',
+    label: 'Dependencies',
+    group: 'Repository',
+    tooltip: 'Structural links between files, such as imports.',
+  },
+  {
+    id: 'timeline',
+    label: 'Timeline',
+    group: 'History',
+    tooltip: 'Commit activity over time, filterable by author, directory, and change type.',
+  },
+  {
+    id: 'coupling',
+    label: 'Coupling',
+    group: 'Coupling',
+    tooltip: 'Find files that repeatedly change together.',
+  },
+  {
+    id: 'predictions',
+    label: 'Predictions',
+    group: 'Prediction',
+    tooltip: 'See what files are likely to change next, and why.',
+  },
+  {
+    id: 'evidence',
+    label: 'Evidence',
+    group: 'Explanation',
+    tooltip: 'Understand why RepoInsight made a prediction.',
+  },
 ]
 
-export type ExploreTab = 'graph' | 'files' | 'dependencies'
-export type PredictTab = 'predictions' | 'ripple' | 'simulator'
-export type HistoryTab = 'timeline' | 'patterns'
-
-export const EXPLORE_TABS: { id: ExploreTab; label: string }[] = [
-  { id: 'graph', label: 'Graph' },
-  { id: 'files', label: 'Files' },
-  { id: 'dependencies', label: 'Dependencies' },
-]
+export type PredictTab = 'predicted' | 'related' | 'impact'
 
 export const PREDICT_TABS: { id: PredictTab; label: string }[] = [
-  { id: 'predictions', label: 'Predictions' },
-  { id: 'ripple', label: 'Ripple' },
-  { id: 'simulator', label: 'Simulator' },
-]
-
-export const HISTORY_TABS: { id: HistoryTab; label: string }[] = [
-  { id: 'timeline', label: 'Timeline' },
-  { id: 'patterns', label: 'Patterns' },
+  { id: 'predicted', label: 'Predicted changes' },
+  { id: 'related', label: 'Related files' },
+  { id: 'impact', label: 'Impact simulator' },
 ]

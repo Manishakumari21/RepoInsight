@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   FilePrediction,
   ImpactResponse,
@@ -7,36 +7,27 @@ import type {
   RippleResponse,
 } from '../types'
 import type { ActiveSource } from '../lib/repoSource'
-import { sourceLabel } from '../lib/repoSource'
 import { fetchLocalImpact, fetchImpact, fetchLocalRipple, fetchRipple } from '../api'
 import { buildFileStats, collectFilePaths } from '../lib/files'
-import { Header } from './Header'
+import { NAV_ITEMS, type PredictTab, type ViewId } from '../lib/sections'
+import { useMediaQuery } from '../lib/useMediaQuery'
+import { TopBar } from './TopBar'
 import { Sidebar } from './Sidebar'
 import { Breadcrumbs } from './Breadcrumbs'
-import { FlowNext } from './FlowNext'
-import type {
-  DashboardSection,
-  ExploreTab,
-  HistoryTab,
-  PredictTab,
-} from '../lib/sections'
-import { EXPLORE_TABS, HISTORY_TABS, PREDICT_TABS } from '../lib/sections'
 import { SubTabs } from './SubTabs'
+import { CommandPalette, type PaletteSelection } from './CommandPalette'
 import { OverviewPage } from './OverviewPage'
+import { StructureView } from './StructureView'
 import { PredictView } from './PredictView'
 import { RippleForecast } from './RippleForecast'
 import { ImpactSimulator } from './ImpactSimulator'
-import { RepoGraph } from './RepoGraph'
-import { FileExplorer } from './FileExplorer'
-import { HistoryView } from './HistoryView'
+import { TimelineView } from './TimelineView'
+import { CouplingView } from './CouplingView'
+import { EvidenceView } from './EvidenceView'
+import { FileInspector } from './FileInspector'
 import { FileDrawer } from './FileDrawer'
 import { Hotspots } from './Hotspots'
 import { Dependencies } from './Dependencies'
-import { Cochange } from './Cochange'
-import { Sequences } from './Sequences'
-import { PropagationGraph } from './PropagationGraph'
-import { PropagationHistory } from './PropagationHistory'
-import { HistoricalExamples } from './HistoricalExamples'
 import { DatasetReadiness } from './DatasetReadiness'
 import { Settings } from './Settings'
 import { NoticeBanner } from './Status'
@@ -49,6 +40,8 @@ export function Dashboard({
   predictionsError,
   onRetryPredictions,
   onImport,
+  onRefresh,
+  refreshing,
 }: {
   source: ActiveSource
   analysis: RepositoryAnalysis
@@ -57,13 +50,16 @@ export function Dashboard({
   predictionsError: string | null
   onRetryPredictions: () => void
   onImport: () => void
+  onRefresh: () => void
+  refreshing: boolean
 }) {
-  const [section, setSection] = useState<DashboardSection>('overview')
-  const [exploreTab, setExploreTab] = useState<ExploreTab>('graph')
-  const [predictTab, setPredictTab] = useState<PredictTab>('predictions')
-  const [historyTab, setHistoryTab] = useState<HistoryTab>('timeline')
+  const [view, setView] = useState<ViewId>('overview')
+  const [predictTab, setPredictTab] = useState<PredictTab>('predicted')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [graphFocus, setGraphFocus] = useState<string | null>(null)
+  const [structureQuery, setStructureQuery] = useState('')
+  const [focusSha, setFocusSha] = useState<string | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [ripple, setRipple] = useState<RippleResponse | null>(null)
   const [rippleLoading, setRippleLoading] = useState(false)
@@ -73,8 +69,8 @@ export function Dashboard({
   const [impactLoading, setImpactLoading] = useState(false)
   const [impactError, setImpactError] = useState<string | null>(null)
   const [impactDescription, setImpactDescription] = useState<string | null>(null)
+  const wide = useMediaQuery('(min-width: 1100px)')
 
-  const label = sourceLabel(source)
   const stats = useMemo(() => buildFileStats(analysis), [analysis])
   const paths = useMemo(() => collectFilePaths(analysis), [analysis])
   const predictionMap = useMemo(() => {
@@ -82,14 +78,18 @@ export function Dashboard({
     for (const item of predictions?.predictions ?? []) map.set(item.file_path, item)
     return map
   }, [predictions])
-  const topRisk = useMemo(
-    () =>
-      [...(predictions?.predictions ?? [])]
-        .filter((item) => item.label === 1)
-        .sort((a, b) => b.probability - a.probability)
-        .slice(0, 3),
-    [predictions],
-  )
+  const predictedSet = useMemo(() => new Set(predictionMap.keys()), [predictionMap])
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   function openFile(path: string) {
     setSelectedFile(path)
@@ -102,19 +102,28 @@ export function Dashboard({
 
   function openGraph(path: string) {
     setGraphFocus(path)
-    setExploreTab('graph')
-    setSection('explore')
+    setView('structure')
   }
 
-  function openPredict(path: string) {
-    setSelectedFile(path)
-    setPredictTab('predictions')
-    setSection('predict')
+  function openArea(directory: string) {
+    setStructureQuery(directory === '(root)' ? '' : directory)
+    setView('structure')
   }
 
   function openHistory() {
-    setHistoryTab('timeline')
-    setSection('history')
+    setView('timeline')
+  }
+
+  function openPaletteSelection(selection: PaletteSelection) {
+    setPaletteOpen(false)
+    if (selection.kind === 'file' && selection.file) {
+      setSelectedFile(selection.file)
+      setGraphFocus(selection.file)
+      setView('structure')
+    } else if (selection.kind === 'commit' && selection.sha) {
+      setFocusSha(selection.sha)
+      setView('timeline')
+    }
   }
 
   async function requestRipple(file: string) {
@@ -161,140 +170,132 @@ export function Dashboard({
     }
   }
 
-  function openGraphFromDrawer(path: string) {
-    setSelectedFile(null)
+  function openGraphFromInspector(path: string) {
+    setSelectedFile(wide ? selectedFile : null)
     setGraphFocus(path)
-    setExploreTab('graph')
-    setSection('explore')
+    setView('structure')
   }
 
-  const subLabel =
-    section === 'explore'
-      ? (EXPLORE_TABS.find((tab) => tab.id === exploreTab)?.label ?? '')
-      : section === 'predict'
-        ? (PREDICT_TABS.find((tab) => tab.id === predictTab)?.label ?? '')
-        : section === 'history'
-          ? (HISTORY_TABS.find((tab) => tab.id === historyTab)?.label ?? '')
-          : ''
+  const navigate = useCallback((next: ViewId) => {
+    setView(next)
+  }, [])
+
+  const trail = useMemo(() => {
+    const item = NAV_ITEMS.find((entry) => entry.id === view)
+    return [{ label: item?.label ?? view }]
+  }, [view])
 
   return (
     <div className={`shell${collapsed ? ' collapsed' : ''}`}>
       <Sidebar
-        sourceLabel={label}
+        sourceLabel={source.kind === 'github' ? `${source.owner}/${source.repo}` : source.path}
         branch={analysis.repository.default_branch}
-        section={section}
-        onSection={setSection}
+        view={view}
+        onNavigate={navigate}
         predictionCount={predictions?.predictions.length ?? 0}
         modelOn={predictions !== null}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((value) => !value)}
       />
       <div className="main">
-        <Header
-          sourceLabel={label}
+        <TopBar
+          source={source}
           branch={analysis.repository.default_branch}
-          section={section}
-          onSection={setSection}
+          refreshing={refreshing}
+          onSearch={() => setPaletteOpen(true)}
+          onRefresh={onRefresh}
           onImport={onImport}
         />
-        <main className="content" id="main-content" tabIndex={-1}>
-          <Breadcrumbs
-            section={section}
-            subLabel={subLabel || undefined}
-            file={selectedFile}
-            onSection={setSection}
-          />
+        <main className="content workbench" id="main-content" tabIndex={-1}>
+          <Breadcrumbs trail={trail} file={selectedFile} onHome={() => setView('overview')} />
           <div className="dashboard-body">
             {analysis.timeline.truncated && (
               <NoticeBanner message="Partial analysis — showing what completed. Some history may be truncated." />
             )}
 
-            {section === 'overview' && (
+            {view === 'overview' && (
+              <OverviewPage
+                analysis={analysis}
+                sourceLabel={source.kind === 'github' ? `${source.owner}/${source.repo}` : source.path}
+                predictions={predictions?.predictions ?? []}
+                predictionsAvailable={predictions !== null}
+                onOpenFile={openFile}
+                onOpenArea={openArea}
+                onOpenHistory={openHistory}
+              />
+            )}
+
+            {view === 'structure' && (
+              <StructureView
+                paths={paths}
+                predictions={predictionMap}
+                stats={stats}
+                edges={analysis.propagation.edges}
+                focus={graphFocus}
+                treeQuery={structureQuery}
+                predicted={predictedSet}
+                onOpenFile={openFile}
+                onFocus={setGraphFocus}
+                onViewPrediction={openFile}
+                onGoHistory={openHistory}
+              />
+            )}
+
+            {view === 'dependencies' && (
               <>
-                <OverviewPage
-                  analysis={analysis}
-                  sourceLabel={label}
-                  predictions={predictions?.predictions ?? []}
-                  predictionsAvailable={predictions !== null}
+                <div className="page-head">
+                  <h1>Dependencies</h1>
+                  <p>
+                    Structural links between files, such as imports, extracted
+                    from source code.
+                  </p>
+                </div>
+                <Dependencies
+                  dependencies={analysis.dependencies}
+                  sourceFiles={analysis.source.source_files}
+                />
+              </>
+            )}
+
+            {view === 'timeline' && (
+              <>
+                <TimelineView
+                  timeline={analysis.timeline}
+                  focusFile={selectedFile}
+                  focusSha={focusSha}
                   onOpenFile={openFile}
+                  onOpenPrediction={openFile}
                   onOpenGraph={openGraph}
-                  onSection={setSection}
                 />
-                <FlowNext
-                  title="Continue to predictions"
-                  sub={
-                    topRisk.length > 0
-                      ? `${topRisk.length} high-risk files flagged — inspect probabilities and evidence next.`
-                      : 'Inspect per-file rework probabilities and the evidence behind them.'
-                  }
-                  primary="Explore Predictions"
-                  onPrimary={() => setSection('predict')}
-                />
+                <DatasetReadiness analysis={analysis} />
+                <Settings repository={analysis.repository} />
               </>
             )}
 
-            {section === 'explore' && (
-              <>
-                <SubTabs
-                  tabs={EXPLORE_TABS}
-                  active={exploreTab}
-                  onChange={setExploreTab}
-                  label="Explore views"
-                />
-                {exploreTab === 'graph' && (
-                  <>
-                    <RepoGraph
-                      edges={analysis.propagation.edges}
-                      files={paths}
-                      focus={graphFocus}
-                      onFocus={setGraphFocus}
-                      onOpenFile={openFile}
-                      onViewPrediction={openFile}
-                      onGoHistory={openHistory}
-                      predicted={new Set(predictionMap.keys())}
-                    />
-                    <FlowNext
-                      title="Check the historical evidence"
-                      sub="Validate graph relationships against commit history, sequences, and rework signals."
-                      primary="View Historical Evidence"
-                      onPrimary={openHistory}
-                    />
-                  </>
-                )}
-                {exploreTab === 'files' && (
-                  <>
-                    <FileExplorer
-                      paths={paths}
-                      predictions={predictionMap}
-                      stats={stats}
-                      onOpenFile={openFile}
-                    />
-                    <FlowNext
-                      title="Visualize file relationships"
-                      sub="Jump into the graph to see dependencies and co-change coupling for any file."
-                      primary="Explore Change Graph"
-                      onPrimary={() => setExploreTab('graph')}
-                    />
-                  </>
-                )}
-                {exploreTab === 'dependencies' && (
-                  <Dependencies
-                    dependencies={analysis.dependencies}
-                    sourceFiles={analysis.source.source_files}
-                  />
-                )}
-              </>
+            {view === 'coupling' && (
+              <CouplingView
+                analysis={analysis}
+                onOpenFile={openFile}
+                onHighlight={(path) => {
+                  setGraphFocus(path)
+                  setView('structure')
+                }}
+              />
             )}
 
-            {section === 'predict' && (
+            {view === 'predictions' && (
               <>
                 <SubTabs
-                  tabs={PREDICT_TABS}
+                  tabs={[
+                    { id: 'predicted', label: 'Predicted changes' },
+                    { id: 'related', label: 'Related files' },
+                    { id: 'impact', label: 'Impact simulator' },
+                  ]}
                   active={predictTab}
                   onChange={setPredictTab}
                   label="Prediction views"
                 />
-                {predictTab === 'predictions' && (
+                {predictTab === 'predicted' && (
                   <>
                     <PredictView
                       analysis={analysis}
@@ -315,137 +316,79 @@ export function Dashboard({
                       onOpenGraph={openGraph}
                     />
                     <Hotspots hotspots={analysis.hotspots} />
-                    <FlowNext
-                      title="Check the historical evidence"
-                      sub="Validate predictions against the commits and patterns behind them."
-                      primary="View Historical Evidence"
-                      onPrimary={openHistory}
-                    />
                   </>
                 )}
-                {predictTab === 'ripple' && (
-                  <>
-                    <RippleForecast
-                      files={paths}
-                      response={ripple}
-                      loading={rippleLoading}
-                      error={rippleError}
-                      onRetry={() => {
-                        if (rippleSource) void requestRipple(rippleSource)
-                      }}
-                      onRequest={(file) => void requestRipple(file)}
-                      onOpenFile={openFile}
-                    />
-                    <FlowNext
-                      title="See how files connect"
-                      sub="Open the change graph to explore structural dependencies around the predicted ripple."
-                      primary="Explore Change Graph"
-                      onPrimary={() =>
-                        openGraph(ripple?.source ?? graphFocus ?? paths[0] ?? '')
-                      }
-                    />
-                  </>
+                {predictTab === 'related' && (
+                  <RippleForecast
+                    files={paths}
+                    response={ripple}
+                    loading={rippleLoading}
+                    error={rippleError}
+                    onRetry={() => {
+                      if (rippleSource) void requestRipple(rippleSource)
+                    }}
+                    onRequest={(file) => void requestRipple(file)}
+                    onOpenFile={openFile}
+                  />
                 )}
-                {predictTab === 'simulator' && (
-                  <>
-                    <ImpactSimulator
-                      response={impact}
-                      loading={impactLoading}
-                      error={impactError}
-                      onRetry={() => {
-                        if (impactDescription) void requestImpact(impactDescription)
-                      }}
-                      onRequest={(description) => void requestImpact(description)}
-                      onOpenFile={openFile}
-                      onOpenGraph={() => {
-                        setExploreTab('graph')
-                        setSection('explore')
-                      }}
-                    />
-                    <FlowNext
-                      title="See how files connect"
-                      sub="Open the change graph to explore structural dependencies around the simulated impact."
-                      primary="Explore Change Graph"
-                      onPrimary={() => {
-                        setExploreTab('graph')
-                        setSection('explore')
-                      }}
-                    />
-                  </>
+                {predictTab === 'impact' && (
+                  <ImpactSimulator
+                    response={impact}
+                    loading={impactLoading}
+                    error={impactError}
+                    onRetry={() => {
+                      if (impactDescription) void requestImpact(impactDescription)
+                    }}
+                    onRequest={(description) => void requestImpact(description)}
+                    onOpenFile={openFile}
+                    onOpenGraph={() => setView('structure')}
+                  />
                 )}
               </>
             )}
 
-            {section === 'history' && (
-              <>
-                <SubTabs
-                  tabs={HISTORY_TABS}
-                  active={historyTab}
-                  onChange={setHistoryTab}
-                  label="History views"
-                />
-                {historyTab === 'timeline' && (
-                  <>
-                    <HistoryView
-                      timeline={analysis.timeline}
-                      focusFile={selectedFile}
-                      onOpenFile={openFile}
-                      onOpenPrediction={openPredict}
-                      onOpenGraph={openGraph}
-                    />
-                    <DatasetReadiness analysis={analysis} />
-                    <Settings repository={analysis.repository} />
-                    <FlowNext
-                      title="Back to the overview"
-                      sub="Return to the command center for risk summary and files requiring attention."
-                      primary="Back to Overview"
-                      onPrimary={() => setSection('overview')}
-                    />
-                  </>
-                )}
-                {historyTab === 'patterns' && (
-                  <>
-                    <Sequences
-                      sequences={analysis.sequences.sequences}
-                      windowSeconds={analysis.sequences.window_seconds}
-                    />
-                    <Cochange
-                      pairs={analysis.cochange.pairs}
-                      total={analysis.cochange.total_pairs}
-                    />
-                    <PropagationGraph propagation={analysis.propagation} />
-                    <PropagationHistory
-                      timeline={analysis.timeline}
-                      followups={analysis.followups}
-                      rework={analysis.rework}
-                    />
-                    <HistoricalExamples
-                      examples={analysis.examples.examples}
-                      total={analysis.examples.total}
-                    />
-                    <FlowNext
-                      title="Back to the overview"
-                      sub="Return to the command center for risk summary and files requiring attention."
-                      primary="Back to Overview"
-                      onPrimary={() => setSection('overview')}
-                    />
-                  </>
-                )}
-              </>
+            {view === 'evidence' && (
+              <EvidenceView
+                predictions={predictions?.predictions ?? null}
+                loading={predictionsLoading}
+                error={predictionsError}
+                onOpenFile={openFile}
+              />
             )}
           </div>
         </main>
       </div>
 
-      {selectedFile && (
+      {selectedFile && wide && (
+        <aside className="inspector" aria-label="File inspector">
+          <FileInspector
+            path={selectedFile}
+            prediction={predictionMap.get(selectedFile) ?? null}
+            analysis={analysis}
+            onClose={() => setSelectedFile(null)}
+            onOpenFile={focusAndOpen}
+            onOpenGraph={openGraphFromInspector}
+            onGoHistory={openHistory}
+          />
+        </aside>
+      )}
+      {selectedFile && !wide && (
         <FileDrawer
           path={selectedFile}
           prediction={predictionMap.get(selectedFile) ?? null}
           analysis={analysis}
           onClose={() => setSelectedFile(null)}
           onOpenFile={focusAndOpen}
-          onOpenGraph={openGraphFromDrawer}
+          onOpenGraph={openGraphFromInspector}
           onGoHistory={openHistory}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          files={paths}
+          commits={analysis.timeline.entries ?? []}
+          onSelect={openPaletteSelection}
+          onClose={() => setPaletteOpen(false)}
         />
       )}
     </div>

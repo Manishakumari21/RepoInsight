@@ -8,7 +8,9 @@ import {
   type SortDir,
   type SortKey,
 } from '../lib/predictions'
+import { predictionLevel, predictionLevelClass } from '../lib/labels'
 import { Panel } from './Panel'
+import { Tooltip } from './Tooltip'
 
 export function Predictions({
   predictions,
@@ -68,10 +70,10 @@ export function Predictions({
   return (
     <>
       <div className="page-head">
-        <h1>Change Propagation Predictions</h1>
+        <h1>Predicted Changes</h1>
         <p>
-          {predictions ? `${predictions.length} files analyzed · ` : ''}
-          model {modelName} · uncalibrated probability
+          Predicted future changes. {predictions ? `${predictions.length} files analyzed · ` : ''}
+          model {modelName} · uncalibrated probability. <Tooltip term="Prediction" text="The model's estimate that changing a file will need follow-up work, learned from this repository's history. Not a guarantee." />
         </p>
       </div>
       {attention.length > 0 && (
@@ -86,7 +88,7 @@ export function Predictions({
               <article key={item.file_path} className="attention-card">
                 <div className="attention-top">
                   <span className="attention-file">{item.file_path}</span>
-                  <span className="severity high">High risk</span>
+                  <span className={`status ${predictionLevelClass(predictionLevel(item.probability, item.label))}`}>{predictionLevel(item.probability, item.label)}</span>
                 </div>
                 <div className="attention-prob">
                   <span className="track" aria-hidden="true">
@@ -155,23 +157,23 @@ export function Predictions({
               aria-label="Search predicted files"
             />
             <label className="filter-field">
-              Prediction
+              Prediction level
               <select
                 value={label}
                 onChange={(event) => setLabel(event.target.value as LabelFilter)}
                 aria-label="Filter by predicted label"
               >
                 <option value="all">All</option>
-                <option value="positive">At risk</option>
-                <option value="negative">OK</option>
+                <option value="positive">Likely / Possible</option>
+                <option value="negative">Low likelihood</option>
               </select>
             </label>
             <label className="filter-field">
-              Probability
+              Confidence
               <select
                 value={band}
                 onChange={(event) => setBand(event.target.value as BandFilter)}
-                aria-label="Filter by probability band"
+                aria-label="Filter by confidence"
               >
                 <option value="all">All</option>
                 <option value="high">High</option>
@@ -214,16 +216,19 @@ export function Predictions({
                       className="th-sort"
                       onClick={() => toggleSort('probability')}
                     >
-                      Probability {sortKey === 'probability' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                      Prediction {sortKey === 'probability' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                     </button>
                   </th>
-                  <th>Label</th>
                   <th>Confidence</th>
+                  <th>Recent activity</th>
+                  <th>Historical coupling</th>
+                  <th>Evidence</th>
                 </tr>
               </thead>
               <tbody>
                 {visible.slice(0, 200).map((item) => {
                   const pct = item.probability * 100
+                  const level = predictionLevel(item.probability, item.label)
                   const tone =
                     item.label === 1
                       ? pct >= 80
@@ -237,7 +242,7 @@ export function Predictions({
                       <td>
                         <button
                           type="button"
-                          className="link-button"
+                          className="link-button mono"
                           onClick={() => onSelect(item.file_path)}
                           title={`Open details for ${item.file_path}`}
                         >
@@ -268,15 +273,18 @@ export function Predictions({
                               }}
                             />
                           </span>
+                          <span className={`status ${predictionLevelClass(level)}`}>{level}</span>
                           <span className="tnum">{pct.toFixed(1)}%</span>
                         </span>
                       </td>
+                      <td className="muted" style={{ textTransform: 'capitalize' }}>{item.confidence_level}</td>
+                      <td className="muted tnum">{stats[item.file_path]?.changes ?? 0} changes</td>
+                      <td className="muted tnum">{item.historical_examples.length} examples</td>
                       <td>
-                        <span className={`severity ${item.label === 1 ? 'high' : 'low'}`}>
-                          {item.label === 1 ? 'At risk' : 'OK'}
-                        </span>
+                        <button type="button" className="ghost-button" onClick={() => onSelect(item.file_path)}>
+                          View evidence
+                        </button>
                       </td>
-                      <td className="muted">{item.confidence_level}</td>
                     </tr>
                   )
                 })}

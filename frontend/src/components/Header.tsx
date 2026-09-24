@@ -1,5 +1,4 @@
-import type { DashboardSection } from '../lib/sections'
-import { SECTIONS } from '../lib/sections'
+import { NAV_ITEMS, type ViewId } from '../lib/sections'
 
 export function Header({
   sourceLabel,
@@ -10,8 +9,8 @@ export function Header({
 }: {
   sourceLabel: string
   branch: string
-  section: DashboardSection
-  onSection: (section: DashboardSection) => void
+  section: ViewId
+  onSection: (section: ViewId) => void
   onImport: () => void
 }) {
   return (
@@ -21,13 +20,14 @@ export function Header({
         {branch && <span className="branch-chip">{branch}</span>}
       </div>
       <nav className="dash-tabs" aria-label="Dashboard sections">
-        {SECTIONS.map((item) => (
+        {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
             type="button"
             className={`dash-tab${section === item.id ? ' active' : ''}`}
             aria-current={section === item.id ? 'page' : undefined}
             onClick={() => onSection(item.id)}
+            title={item.tooltip}
           >
             {item.label}
           </button>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FilePrediction } from '../types'
 import { buildFileTree } from '../lib/files'
 import { Panel } from './Panel'
@@ -8,14 +8,20 @@ export function FileExplorer({
   predictions,
   stats,
   onOpenFile,
+  initialQuery,
 }: {
   paths: string[]
   predictions: Map<string, FilePrediction>
   stats: Record<string, { changes: number; complexity: number; dependencies: number; size: number }>
   onOpenFile: (path: string) => void
+  initialQuery?: string
 }) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery ?? '')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (initialQuery !== undefined) setQuery(initialQuery)
+  }, [initialQuery])
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()

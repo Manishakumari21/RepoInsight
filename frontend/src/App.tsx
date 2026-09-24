@@ -87,6 +87,7 @@ function App() {
   const [predictionsError, setPredictionsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const cancelledRef = useRef(false)
 
   useRevealOnScroll(analysis !== null, loading)
@@ -180,6 +181,26 @@ function App() {
     setError(null)
   }
 
+  async function handleRefresh() {
+    if (!source || refreshing || loading) return
+    setRefreshing(true)
+    setError(null)
+    try {
+      const result =
+        source.kind === 'github'
+          ? await fetchRepositoryAnalysis(source.owner, source.repo)
+          : await fetchLocalAnalysis(source.path)
+      if (cancelledRef.current) return
+      setAnalysis(result)
+      await loadPredictions(source)
+    } catch (err) {
+      if (cancelledRef.current) return
+      setError(describeAnalysisError(err))
+    } finally {
+      if (!cancelledRef.current) setRefreshing(false)
+    }
+  }
+
   function handleImport() {
     setSource(null)
     setAnalysis(null)
@@ -224,6 +245,8 @@ function App() {
               predictionsError={predictionsError}
               onRetryPredictions={() => void loadPredictions(source)}
               onImport={handleImport}
+              onRefresh={() => void handleRefresh()}
+              refreshing={refreshing}
             />
           )}
         </>

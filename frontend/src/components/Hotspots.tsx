@@ -52,7 +52,7 @@ export function Hotspots({ hotspots }: { hotspots: Hotspot[] }) {
   const lead = ranked[0]
 
   return (
-    <Panel id="hotspots" title="Hotspots" hint="Top files by risk score">
+    <Panel id="hotspots" title="Hotspots" hint="Heuristic percentile signals, not ML predictions">
       <div className="hotspot-summary">
         <Donut
           size={80}

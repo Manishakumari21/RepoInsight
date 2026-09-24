@@ -13,6 +13,7 @@
   --cyan: #22d3ee;
   --teal: #2dd4bf;
   --brand-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 52%, #22d3ee 100%);
+  --brand-flat: #6366f1;
 
   --text: #f4f7ff;
   --text-secondary: #a8b5d1;
@@ -28,7 +29,6 @@
   --warning: #fbbf24;
   --info: #22d3ee;
 
-
   --bg-elev: var(--bg-secondary);
   --panel-bg: var(--surface);
   --panel-bg-hover: var(--surface-hover);
@@ -38,8 +38,8 @@
   --accent-hover: #7b7ff5;
   --accent-bg: rgba(99, 102, 241, 0.12);
 
-  --shadow: 0 1px 2px rgba(2, 6, 17, 0.6), 0 16px 40px -20px rgba(2, 6, 17, 0.8);
-  --shadow-panel: 0 0 0 1px rgba(34, 211, 238, 0.02), 0 18px 44px -24px rgba(2, 6, 17, 0.9);
+  --shadow: 0 1px 2px rgba(2, 6, 17, 0.6);
+  --shadow-panel: 0 1px 2px rgba(2, 6, 17, 0.5);
 
   --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
@@ -103,13 +103,7 @@ body {
   margin: 0;
   min-width: 320px;
   color: var(--text-secondary);
-  background:
-    radial-gradient(900px 420px at 12% -8%, rgba(99, 102, 241, 0.1), transparent 60%),
-    radial-gradient(820px 380px at 88% -12%, rgba(34, 211, 238, 0.07), transparent 62%),
-    linear-gradient(rgba(28, 49, 87, 0.16) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(28, 49, 87, 0.16) 1px, transparent 1px),
-    var(--bg);
-  background-size: auto, auto, 44px 44px, 44px 44px, auto;
+  background: var(--bg);
 }
 
 body::before {
@@ -118,7 +112,7 @@ body::before {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(1200px 500px at 50% -10%, rgba(139, 92, 246, 0.08), transparent 65%);
+  background: none;
 }
 
 #root { min-height: 100svh; position: relative; z-index: 1; }

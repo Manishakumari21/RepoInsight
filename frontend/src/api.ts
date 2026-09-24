@@ -25,7 +25,6 @@ export class ApiError extends Error {
 
 const VITE_API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
-
 function retryDelayMs(attempt: number, retryAfterSeconds: number | null): number {
   const base =
     retryAfterSeconds != null && retryAfterSeconds > 0

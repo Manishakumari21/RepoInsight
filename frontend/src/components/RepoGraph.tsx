@@ -26,6 +26,7 @@ export function RepoGraph({
   onViewPrediction,
   onGoHistory,
   predicted,
+  chrome,
 }: {
   edges: PropagationEdge[]
   files: string[]
@@ -35,6 +36,7 @@ export function RepoGraph({
   onViewPrediction?: (path: string) => void
   onGoHistory?: () => void
   predicted?: Set<string>
+  chrome?: 'full' | 'compact'
 }) {
   const [query, setQuery] = useState('')
   const [edgeFilter, setEdgeFilter] = useState<EdgeFilter>('all')
@@ -114,16 +116,20 @@ export function RepoGraph({
     )
   }
 
+  const compact = chrome === 'compact'
+
   return (
     <>
-      <div className="page-head">
-        <h1>Change Graph</h1>
-        <p>
-          {focus
-            ? `Centered on ${focus} — dependencies, co-changes, and likely propagation.`
-            : 'Start from one file — the graph shows its direct neighborhood, not the whole repository.'}
-        </p>
-      </div>
+      {!compact && (
+        <div className="page-head">
+          <h1>Change Graph</h1>
+          <p>
+            {focus
+              ? `Centered on ${focus} — dependencies, co-changes, and likely propagation.`
+              : 'Start from one file — the graph shows its direct neighborhood, not the whole repository.'}
+          </p>
+        </div>
+      )}
       <Panel title="Repository Graph" hint="Files and relationships">
         <div className="legend-swatches" aria-label="Graph legend">
           <span className="legend-sw">
@@ -353,89 +359,93 @@ export function RepoGraph({
               <span className="legend-item edge-temporal">temporal</span>
               <span className="legend-item edge-cochange">co-change</span>
             </div>
-            {selected && counts ? (
-              <div className="graph-explain">
-                <span className="role">Selected file</span>
-                <span className="visually-hidden">Selected: {selected.id}</span>
-                <h3>{selected.id}</h3>
-                {counts.neighbors.length === 0 ? (
-                  <p className="history-note" style={{ marginTop: 8 }}>
-                    <strong>No connections detected for this file.</strong>{' '}
-                    It hasn&apos;t changed together with other files and has no
-                    recorded dependencies. Try one of the suggested files above,
-                    or check its history instead.
-                  </p>
+            {!compact && (
+              <>
+                {selected && counts ? (
+                  <div className="graph-explain">
+                    <span className="role">Selected file</span>
+                    <span className="visually-hidden">Selected: {selected.id}</span>
+                    <h3>{selected.id}</h3>
+                    {counts.neighbors.length === 0 ? (
+                      <p className="history-note" style={{ marginTop: 8 }}>
+                        <strong>No connections detected for this file.</strong>{' '}
+                        It hasn&apos;t changed together with other files and has no
+                        recorded dependencies. Try one of the suggested files above,
+                        or check its history instead.
+                      </p>
+                    ) : (
+                    <>
+                    <p className="history-note" style={{ marginTop: 6 }}>
+                      Why is this file important? Its direct neighborhood, split by
+                      relationship type.
+                    </p>
+                    <div className="graph-counts">
+                      <div className="graph-count">
+                        <div className="n tnum">{counts.dependenciesOut}</div>
+                        <div className="l">Dependencies</div>
+                      </div>
+                      <div className="graph-count">
+                        <div className="n tnum">{counts.dependentsIn}</div>
+                        <div className="l">Dependents</div>
+                      </div>
+                      <div className="graph-count">
+                        <div className="n tnum">{counts.cochange}</div>
+                        <div className="l">Co-changes</div>
+                      </div>
+                      <div className="graph-count">
+                        <div className="n tnum">{counts.temporal}</div>
+                        <div className="l">Propagation</div>
+                      </div>
+                    </div>
+                    <p className="eyebrow">Connected files</p>
+                    <ul className="graph-neighbors">
+                      {counts.neighbors.slice(0, 12).map((item) => (
+                        <li key={`${item.id}-${item.direction}`}>
+                          <button type="button" className="link-button" onClick={() => onFocus(item.id)}>
+                            {item.id}
+                          </button>{' '}
+                          <span className="muted">· {item.signals.join(' + ')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="graph-explain-actions">
+                      <button
+                        type="button"
+                        className="flow-button"
+                        onClick={() => (onViewPrediction ?? onOpenFile)(selected.id)}
+                      >
+                        View prediction →
+                      </button>
+                      <button
+                        type="button"
+                        className="flow-ghost"
+                        onClick={() => onOpenFile(selected.id)}
+                      >
+                        Open file details
+                      </button>
+                      {onGoHistory && (
+                        <button
+                          type="button"
+                          className="flow-ghost"
+                          onClick={onGoHistory}
+                        >
+                          View history
+                        </button>
+                      )}
+                    </div>
+                    </>
+                    )}
+                  </div>
                 ) : (
-                <>
-                <p className="history-note" style={{ marginTop: 6 }}>
-                  Why is this file important? Its direct neighborhood, split by
-                  relationship type.
-                </p>
-                <div className="graph-counts">
-                  <div className="graph-count">
-                    <div className="n tnum">{counts.dependenciesOut}</div>
-                    <div className="l">Dependencies</div>
+                  <div className="graph-details">
+                    <p className="history-note" style={{ margin: 0 }}>
+                      Select a node to center it and see why it matters:
+                      dependencies, dependents, co-changes, and predicted
+                      propagation — or search to focus a file.
+                    </p>
                   </div>
-                  <div className="graph-count">
-                    <div className="n tnum">{counts.dependentsIn}</div>
-                    <div className="l">Dependents</div>
-                  </div>
-                  <div className="graph-count">
-                    <div className="n tnum">{counts.cochange}</div>
-                    <div className="l">Co-changes</div>
-                  </div>
-                  <div className="graph-count">
-                    <div className="n tnum">{counts.temporal}</div>
-                    <div className="l">Propagation</div>
-                  </div>
-                </div>
-                <p className="eyebrow">Connected files</p>
-                <ul className="graph-neighbors">
-                  {counts.neighbors.slice(0, 12).map((item) => (
-                    <li key={`${item.id}-${item.direction}`}>
-                      <button type="button" className="link-button" onClick={() => onFocus(item.id)}>
-                        {item.id}
-                      </button>{' '}
-                      <span className="muted">· {item.signals.join(' + ')}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="graph-explain-actions">
-                  <button
-                    type="button"
-                    className="flow-button"
-                    onClick={() => (onViewPrediction ?? onOpenFile)(selected.id)}
-                  >
-                    View prediction →
-                  </button>
-                  <button
-                    type="button"
-                    className="flow-ghost"
-                    onClick={() => onOpenFile(selected.id)}
-                  >
-                    Open file details
-                  </button>
-                  {onGoHistory && (
-                    <button
-                      type="button"
-                      className="flow-ghost"
-                      onClick={onGoHistory}
-                    >
-                      View history
-                    </button>
-                  )}
-                </div>
-                </>
                 )}
-              </div>
-            ) : (
-              <div className="graph-details">
-                <p className="history-note" style={{ margin: 0 }}>
-                  Select a node to center it and see why it matters:
-                  dependencies, dependents, co-changes, and predicted
-                  propagation — or search to focus a file.
-                </p>
-              </div>
+              </>
             )}
           </div>
         </div>

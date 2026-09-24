@@ -145,11 +145,11 @@ describe('Header', () => {
         onImport={onImport}
       />,
     )
-    for (const tab of ['Overview', 'Explore', 'Predict', 'History']) {
+    for (const tab of ['Overview', 'Structure', 'Timeline', 'Coupling', 'Predictions', 'Evidence']) {
       expect(screen.getByRole('button', { name: tab })).toBeInTheDocument()
     }
-    fireEvent.click(screen.getByRole('button', { name: 'Explore' }))
-    expect(onSection).toHaveBeenCalledWith('explore')
+    fireEvent.click(screen.getByRole('button', { name: 'Structure' }))
+    expect(onSection).toHaveBeenCalledWith('structure')
     fireEvent.click(screen.getByText('Import Repository'))
     expect(onImport).toHaveBeenCalled()
   })

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { ErrorBanner } from './Status'
+import { Logo } from './Logo'
 
 export type ImportMode = 'github' | 'local'
 
@@ -45,26 +46,27 @@ export function Landing({
       <div className="landing-shell">
         <div>
           <div className="landing-brand">
-            <span className="brand-mark" aria-hidden="true">RI</span>
+            <span className="brand-mark" aria-hidden="true"><Logo size={22} /></span>
             <div>
               <div className="brand-title">RepoInsight</div>
               <div className="brand-sub">change intelligence</div>
             </div>
           </div>
-          <span className="landing-eyebrow">Repository intelligence · Phase 8</span>
+          <span className="landing-eyebrow">Repository intelligence workbench</span>
           <h1 className="landing-title">
-            Know what breaks <span className="grad">before you change it.</span>
+            Understand how your repository changes — <span className="grad">and what may change next.</span>
           </h1>
           <p className="landing-sub">
-            RepoInsight reads commit history and code structure to map
-            change propagation, co-change coupling, and rework risk —
-            with evidence kept separate from prediction.
+            Explore structure, history, coupling and prediction in one
+            repository intelligence workspace. Every claim links to
+            repository evidence.
           </p>
           <ul className="landing-points">
-            <li><CheckIcon /> Temporal propagation graph across files and modules</li>
-            <li><CheckIcon /> Per-file rework probability with feature evidence</li>
-            <li><CheckIcon /> Sequences, follow-ups, and candidate rework signals</li>
-            <li><CheckIcon /> Local Git analysis — no token required</li>
+            <li><CheckIcon /> Understand structure — files, modules, dependencies</li>
+            <li><CheckIcon /> Understand history — timelines, change sets, authors</li>
+            <li><CheckIcon /> Discover hidden coupling — files that change together</li>
+            <li><CheckIcon /> Predict likely changes — with evidence, not just scores</li>
+            <li><CheckIcon /> Explain predictions — every number traces to commits</li>
           </ul>
         </div>
 
@@ -177,6 +179,32 @@ export function Landing({
       <div className="landing-foot" aria-label="Pipeline stages">
         <span>collect → structure → temporal → dataset → predict → explain</span>
         <span>evidence ≠ prediction</span>
+      </div>
+      <div className="landing-preview" aria-label="What you can do in the workbench">
+        <div className="landing-preview-card">
+          <h3>Understand structure</h3>
+          <p>Browse the file tree, filter by <code>Dependencies / Temporal / Co-change</code>, and inspect any file.</p>
+        </div>
+        <div className="landing-preview-card">
+          <h3>Understand history</h3>
+          <p>Filter commits by date, author, directory, and change type. Every row opens its changed files.</p>
+        </div>
+        <div className="landing-preview-card">
+          <h3>Discover coupling</h3>
+          <p>Rank <code>File A ↔ File B</code> pairs by co-changes, with trend and historical examples.</p>
+        </div>
+        <div className="landing-preview-card">
+          <h3>Predict changes</h3>
+          <p><code>Likely / Possible / Low likelihood</code> with confidence, recent activity, and coupling context.</p>
+        </div>
+        <div className="landing-preview-card">
+          <h3>Explain with evidence</h3>
+          <p>Structural, historical, and temporal evidence plus real commits — <code>evidence ≠ prediction</code>.</p>
+        </div>
+        <div className="landing-preview-card">
+          <h3>Simulate impact</h3>
+          <p>Describe a planned change in words and see which capabilities and files deserve review first.</p>
+        </div>
       </div>
     </div>
   )

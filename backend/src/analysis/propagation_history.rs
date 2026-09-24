@@ -215,9 +215,10 @@ pub fn detect_followups(
             }
 
             let Some(followup) = classify_followup(
-                ordered[i],
+                &ordered[i].sha,
                 &file_sets[i],
-                current,
+                &current.sha,
+                &current.message,
                 &file_sets[j],
                 delay,
                 &dependency_links,
@@ -248,9 +249,10 @@ pub fn detect_followups(
 }
 
 fn classify_followup(
-    previous: &Commit,
+    previous_sha: &str,
     previous_files: &HashSet<String>,
-    current: &Commit,
+    current_sha: &str,
+    current_message: &str,
     current_files: &HashSet<String>,
     delay: i64,
     dependency_links: &HashSet<(String, String)>,
@@ -266,7 +268,7 @@ fn classify_followup(
     let mut current_sorted: Vec<String> = current_files.iter().cloned().collect();
     current_sorted.sort();
 
-    let fix = is_fix_message(&current.message);
+    let fix = is_fix_message(current_message);
 
     if !overlap.is_empty() {
         let (reason, signals) = if fix {
@@ -278,9 +280,9 @@ fn classify_followup(
             ("same-file".to_owned(), vec!["same-file".to_owned()])
         };
         return Some(FollowUp {
-            source_sha: previous.sha.clone(),
+            source_sha: previous_sha.to_owned(),
             source_files: previous_sorted,
-            followup_sha: current.sha.clone(),
+            followup_sha: current_sha.to_owned(),
             followup_files: current_sorted,
             delay_seconds: delay,
             reason,
@@ -303,9 +305,9 @@ fn classify_followup(
 
     if related_cochange {
         return Some(FollowUp {
-            source_sha: previous.sha.clone(),
+            source_sha: previous_sha.to_owned(),
             source_files: previous_sorted,
-            followup_sha: current.sha.clone(),
+            followup_sha: current_sha.to_owned(),
             followup_files: current_sorted,
             delay_seconds: delay,
             reason: "co-change-history".to_owned(),
@@ -316,9 +318,9 @@ fn classify_followup(
 
     if related_dependency {
         return Some(FollowUp {
-            source_sha: previous.sha.clone(),
+            source_sha: previous_sha.to_owned(),
             source_files: previous_sorted,
-            followup_sha: current.sha.clone(),
+            followup_sha: current_sha.to_owned(),
             followup_files: current_sorted,
             delay_seconds: delay,
             reason: "dependency".to_owned(),
@@ -329,9 +331,9 @@ fn classify_followup(
 
     if fix {
         return Some(FollowUp {
-            source_sha: previous.sha.clone(),
+            source_sha: previous_sha.to_owned(),
             source_files: previous_sorted,
-            followup_sha: current.sha.clone(),
+            followup_sha: current_sha.to_owned(),
             followup_files: current_sorted,
             delay_seconds: delay,
             reason: "fix-message".to_owned(),
@@ -486,6 +488,248 @@ pub fn detect_rework(
         events,
         total,
         window_seconds: config.rework_window_secs,
+    }
+}
+
+/// Stored per-commit classification inputs for the incremental twin below.
+#[derive(Debug, Clone)]
+struct PrefixCommit {
+    sha: String,
+    timestamp: i64,
+    message: String,
+    files: HashSet<String>,
+}
+
+/// Running equivalent of repeated [`detect_followups`] / [`detect_rework`]
+/// calls over growing strictly-historical prefixes.
+///
+/// Pair *discovery* is monotonic: for a fixed current commit, the set of
+/// earlier commits inside each window never changes as history grows, so each
+/// newly eligible commit is paired once with the stored prefix using the same
+/// backward scan and window breaks. Pair *classification*, however, depends
+/// on the current prefix co-change map (a pair's reason can flip from
+/// unrelated/dependency/fix-message to co-change-history as co-change
+/// evidence accumulates), so candidates store only `(earlier, current,
+/// delay)` and are classified at [`materialize`](Self::materialize) time with
+/// the caller's present co-change map — exactly as the oracles classify every
+/// pair with the full prefix map on each call. Sorting, totals, and the
+/// top-100 truncations are verbatim.
+///
+/// Advance-only over the same grouped-timestamp ranges the dataset builder
+/// uses (commits with `timestamp < cutoff`, never the target itself).
+#[derive(Debug, Default)]
+pub struct FollowupReworkPrefixAccumulator {
+    commits: Vec<PrefixCommit>,
+    followup_candidates: Vec<(usize, usize, i64)>,
+    rework_candidates: Vec<(usize, usize, i64)>,
+    dependency_links: HashSet<(String, String)>,
+    config: PropagationConfig,
+}
+
+impl FollowupReworkPrefixAccumulator {
+    pub fn new(
+        dependencies: &[crate::analysis::dependencies::DependencyEdge],
+        config: PropagationConfig,
+    ) -> Self {
+        let dependency_links: HashSet<(String, String)> = dependencies
+            .iter()
+            .flat_map(|edge| {
+                [
+                    (edge.source.clone(), edge.target.clone()),
+                    (edge.target.clone(), edge.source.clone()),
+                ]
+            })
+            .collect();
+
+        Self {
+            commits: Vec::new(),
+            followup_candidates: Vec::new(),
+            rework_candidates: Vec::new(),
+            dependency_links,
+            config,
+        }
+    }
+
+    pub fn advance(&mut self, commits: &[Commit]) {
+        for commit in commits {
+            let Some(timestamp) = commit.timestamp else {
+                continue;
+            };
+
+            let files: HashSet<String> = relevant_files(&commit.files)
+                .iter()
+                .map(|file| file.filename.clone())
+                .collect();
+            let current = self.commits.len();
+            self.commits.push(PrefixCommit {
+                sha: commit.sha.clone(),
+                timestamp,
+                message: commit.message.clone(),
+                files,
+            });
+            if self.commits[current].files.is_empty() {
+                continue;
+            }
+
+            // Mirror the oracles' backward scans: delays grow monotonically
+            // going backwards, so the first commit beyond the wider (rework)
+            // window ends the scan; the narrower (follow-up) window only
+            // filters which pairs become follow-up candidates.
+            for previous in (0..current).rev() {
+                let delay = timestamp - self.commits[previous].timestamp;
+                if delay < 0 {
+                    continue;
+                }
+                if delay > self.config.rework_window_secs {
+                    break;
+                }
+                if self.commits[previous].files.is_empty() {
+                    continue;
+                }
+                if delay <= self.config.followup_window_secs {
+                    self.followup_candidates.push((previous, current, delay));
+                }
+                self.rework_candidates.push((previous, current, delay));
+            }
+        }
+    }
+
+    pub fn materialize(
+        &self,
+        cochange_pairs: &HashMap<(String, String), usize>,
+    ) -> (FollowUpAnalysis, ReworkAnalysis) {
+        let cochange_links: HashSet<(String, String)> = cochange_pairs.keys().cloned().collect();
+
+        let mut followups = Vec::new();
+        for (previous, current, delay) in &self.followup_candidates {
+            let earlier = &self.commits[*previous];
+            let later = &self.commits[*current];
+            if let Some(followup) = classify_followup(
+                &earlier.sha,
+                &earlier.files,
+                &later.sha,
+                &later.message,
+                &later.files,
+                *delay,
+                &self.dependency_links,
+                &cochange_links,
+            ) {
+                followups.push(followup);
+            }
+        }
+        followups.sort_by(|a: &FollowUp, b: &FollowUp| {
+            a.delay_seconds
+                .cmp(&b.delay_seconds)
+                .then_with(|| a.source_sha.cmp(&b.source_sha))
+                .then_with(|| a.followup_sha.cmp(&b.followup_sha))
+        });
+        let followup_total = followups.len();
+        followups.truncate(MAX_FOLLOWUPS);
+
+        // Mirror `detect_rework` pair-for-pair over the stored candidates.
+        // The dedup set is fresh per materialization exactly as the oracle
+        // builds it fresh per call.
+        let mut events = Vec::new();
+        let mut seen: HashSet<(String, String, String, String)> = HashSet::new();
+        for (previous, current, delay) in &self.rework_candidates {
+            let earlier = &self.commits[*previous];
+            let later = &self.commits[*current];
+            let delay = *delay;
+            let revert = is_revert_message(&later.message);
+            let fix = is_fix_message(&later.message);
+
+            let mut overlap: Vec<String> =
+                earlier.files.intersection(&later.files).cloned().collect();
+            overlap.sort();
+
+            for file in overlap {
+                let rule = if revert {
+                    "revert"
+                } else if fix {
+                    "fix-message"
+                } else {
+                    "repeated-touch"
+                };
+                let key = (
+                    file.clone(),
+                    earlier.sha.clone(),
+                    later.sha.clone(),
+                    rule.to_owned(),
+                );
+                if !seen.insert(key) {
+                    continue;
+                }
+                events.push(ReworkEvent {
+                    evidence: format!(
+                        "candidate rework: {file} changed again after {delay}s ({} -> {}) [rule: {rule}]",
+                        short_sha(&earlier.sha),
+                        short_sha(&later.sha),
+                    ),
+                    file,
+                    initial_sha: earlier.sha.clone(),
+                    rework_sha: later.sha.clone(),
+                    delay_seconds: delay,
+                    rule: rule.to_owned(),
+                });
+            }
+
+            if earlier.files.is_disjoint(&later.files) && fix {
+                let related = earlier.files.iter().any(|a| {
+                    later.files.iter().any(|b| {
+                        cochange_links.contains(&canonical_pair(a, b))
+                            || self.dependency_links.contains(&(a.clone(), b.clone()))
+                    })
+                });
+                if related {
+                    let mut target_files: Vec<String> = later.files.iter().cloned().collect();
+                    target_files.sort();
+                    let file = target_files.first().cloned().unwrap_or_default();
+                    let key = (
+                        file.clone(),
+                        earlier.sha.clone(),
+                        later.sha.clone(),
+                        "related-fix".to_owned(),
+                    );
+                    if seen.insert(key) {
+                        events.push(ReworkEvent {
+                            evidence: format!(
+                                "candidate rework: {file} (related to {}) changed with a fix message after {delay}s ({} -> {}) [rule: related-fix]",
+                                join_sorted(&earlier.files),
+                                short_sha(&earlier.sha),
+                                short_sha(&later.sha),
+                            ),
+                            file,
+                            initial_sha: earlier.sha.clone(),
+                            rework_sha: later.sha.clone(),
+                            delay_seconds: delay,
+                            rule: "related-fix".to_owned(),
+                        });
+                    }
+                }
+            }
+        }
+        events.sort_by(|a, b| {
+            a.delay_seconds
+                .cmp(&b.delay_seconds)
+                .then_with(|| a.file.cmp(&b.file))
+                .then_with(|| a.initial_sha.cmp(&b.initial_sha))
+                .then_with(|| a.rework_sha.cmp(&b.rework_sha))
+        });
+        let rework_total = events.len();
+        events.truncate(MAX_REWORK_EVENTS);
+
+        (
+            FollowUpAnalysis {
+                followups,
+                total: followup_total,
+                window_seconds: self.config.followup_window_secs,
+            },
+            ReworkAnalysis {
+                events,
+                total: rework_total,
+                window_seconds: self.config.rework_window_secs,
+            },
+        )
     }
 }
 
@@ -959,5 +1203,382 @@ mod tests {
 
         let result = detect_followups(&commits, &[], &HashMap::new(), &config());
         assert!(result.followups.is_empty());
+    }
+
+    fn author_commit(
+        sha: &str,
+        timestamp: Option<i64>,
+        author: Option<&str>,
+        message: &str,
+        files: Vec<ChangedFile>,
+    ) -> Commit {
+        Commit {
+            sha: sha.to_owned(),
+            message: message.to_owned(),
+            author: author.map(|name| crate::github::commits::CommitAuthor {
+                name: name.to_owned(),
+                email: Some(format!("{name}@x.io")),
+                date: None,
+            }),
+            timestamp,
+            date: None,
+            url: String::new(),
+            stats: CommitStats::default(),
+            files,
+        }
+    }
+
+    fn dep(source: &str, target: &str) -> crate::analysis::dependencies::DependencyEdge {
+        crate::analysis::dependencies::DependencyEdge {
+            source: source.to_owned(),
+            target: target.to_owned(),
+        }
+    }
+
+    fn followup_tuples(
+        analysis: &FollowUpAnalysis,
+    ) -> Vec<(
+        String,
+        Vec<String>,
+        String,
+        Vec<String>,
+        i64,
+        String,
+        Vec<String>,
+        String,
+    )> {
+        analysis
+            .followups
+            .iter()
+            .map(|entry| {
+                (
+                    entry.source_sha.clone(),
+                    entry.source_files.clone(),
+                    entry.followup_sha.clone(),
+                    entry.followup_files.clone(),
+                    entry.delay_seconds,
+                    entry.reason.clone(),
+                    entry.signals.clone(),
+                    entry.evidence_type.clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn rework_tuples(
+        analysis: &ReworkAnalysis,
+    ) -> Vec<(String, String, String, i64, String, String)> {
+        analysis
+            .events
+            .iter()
+            .map(|entry| {
+                (
+                    entry.file.clone(),
+                    entry.initial_sha.clone(),
+                    entry.rework_sha.clone(),
+                    entry.delay_seconds,
+                    entry.rule.clone(),
+                    entry.evidence.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Dataset's exact frequency consumption over an analysis result.
+    fn followup_frequency(analysis: &FollowUpAnalysis) -> HashMap<String, usize> {
+        let mut frequency: HashMap<String, usize> = HashMap::new();
+        for followup in &analysis.followups {
+            let files: HashSet<&String> = followup
+                .source_files
+                .iter()
+                .chain(&followup.followup_files)
+                .collect();
+            for file in files {
+                *frequency.entry(file.clone()).or_insert(0) += 1;
+            }
+        }
+        frequency
+    }
+
+    fn rework_frequency(analysis: &ReworkAnalysis) -> HashMap<String, usize> {
+        let mut frequency: HashMap<String, usize> = HashMap::new();
+        for event in &analysis.events {
+            *frequency.entry(event.file.clone()).or_insert(0) += 1;
+        }
+        frequency
+    }
+
+    #[test]
+    fn incremental_followup_rework_matches_oracle_at_every_cutoff() {
+        // Covers: repeats, multi-file commits, same-author chains,
+        // multi-author histories, short intervals, exact 7d/14d window
+        // boundaries (in) and one-second-past boundaries (out), equal
+        // timestamps, ghosts, ignored-only and empty commits, overlapping
+        // chains, repeated rework, multi-relationship events, fix/revert
+        // messages, and co-change/dependency/fix derived reasons.
+        let commits = vec![
+            author_commit(
+                "k0",
+                Some(0),
+                Some("amy"),
+                "add feature",
+                vec![file("a.rs"), file("b.rs")],
+            ),
+            author_commit(
+                "k1",
+                Some(100),
+                Some("amy"),
+                "extend feature",
+                vec![file("a.rs")],
+            ),
+            author_commit(
+                "k1b",
+                Some(100),
+                Some("bob"),
+                "update docs",
+                vec![file("c.rs")],
+            ),
+            author_commit(
+                "k2",
+                Some(200),
+                Some("bob"),
+                "fix login bug",
+                vec![file("b.rs"), file("d.rs")],
+            ),
+            author_commit(
+                "ign",
+                Some(300),
+                Some("amy"),
+                "ignore",
+                vec![file("target/w.rs")],
+            ),
+            author_commit("emptyf", Some(350), Some("bob"), "empty", vec![]),
+            author_commit(
+                "rev",
+                Some(500),
+                Some("amy"),
+                "Revert \"add feature\"",
+                vec![file("a.rs")],
+            ),
+            author_commit(
+                "k7",
+                Some(700),
+                Some("bob"),
+                "wire d",
+                vec![file("d.rs"), file("e.rs")],
+            ),
+            author_commit("k8", Some(800), Some("amy"), "wire e", vec![file("e.rs")]),
+            author_commit("ghost", None, None, "ghost", vec![file("a.rs")]),
+            author_commit(
+                "k3",
+                Some(604800),
+                Some("amy"),
+                "refactor",
+                vec![file("a.rs")],
+            ),
+            author_commit(
+                "k4",
+                Some(604801),
+                Some("bob"),
+                "cleanup",
+                vec![file("a.rs")],
+            ),
+            author_commit(
+                "k5",
+                Some(1209600),
+                Some("amy"),
+                "fix edge case",
+                vec![file("b.rs")],
+            ),
+            author_commit(
+                "k6",
+                Some(1209601),
+                Some("bob"),
+                "polish",
+                vec![file("b.rs")],
+            ),
+            author_commit(
+                "future",
+                Some(9999999),
+                Some("amy"),
+                "later",
+                vec![file("z.rs")],
+            ),
+        ];
+        let dependencies = vec![
+            dep("b.rs", "e.rs"),
+            dep("b.rs", "e.rs"),
+            dep("x.rs", "y.rs"),
+        ];
+        let cfg = config();
+
+        // Same ordering as the dataset builder: timestamped only,
+        // sorted by (timestamp, sha).
+        let mut ordered: Vec<Commit> = commits
+            .iter()
+            .filter(|commit| commit.timestamp.is_some())
+            .cloned()
+            .collect();
+        ordered.sort_by(|a, b| {
+            (a.timestamp, &a.sha)
+                .partial_cmp(&(b.timestamp, &b.sha))
+                .expect("timestamps present")
+        });
+
+        let mut accumulator = FollowupReworkPrefixAccumulator::new(&dependencies, cfg);
+        let mut advanced = 0usize;
+        let mut cutoffs: Vec<i64> = ordered
+            .iter()
+            .filter_map(|commit| commit.timestamp)
+            .collect();
+        cutoffs.sort_unstable();
+        cutoffs.dedup();
+
+        for cutoff in cutoffs {
+            let prefix_len =
+                ordered.partition_point(|commit| commit.timestamp.expect("timestamped") < cutoff);
+            accumulator.advance(&ordered[advanced..prefix_len]);
+            advanced = prefix_len;
+            let prefix = &ordered[..prefix_len];
+
+            let (_, metrics) = crate::analysis::history::analyze(prefix);
+            let oracle_followups =
+                detect_followups(prefix, &dependencies, &metrics.cochange_pairs, &cfg);
+            let oracle_rework = detect_rework(prefix, &dependencies, &metrics.cochange_pairs, &cfg);
+            let (new_followups, new_rework) = accumulator.materialize(&metrics.cochange_pairs);
+
+            assert_eq!(
+                followup_tuples(&new_followups),
+                followup_tuples(&oracle_followups),
+                "followups cutoff {cutoff}"
+            );
+            assert_eq!(
+                (new_followups.total, new_followups.window_seconds),
+                (oracle_followups.total, oracle_followups.window_seconds),
+                "followup meta cutoff {cutoff}"
+            );
+            assert_eq!(
+                rework_tuples(&new_rework),
+                rework_tuples(&oracle_rework),
+                "rework cutoff {cutoff}"
+            );
+            assert_eq!(
+                (new_rework.total, new_rework.window_seconds),
+                (oracle_rework.total, oracle_rework.window_seconds),
+                "rework meta cutoff {cutoff}"
+            );
+            // Downstream dataset consumption: per-file frequencies.
+            assert_eq!(
+                followup_frequency(&new_followups),
+                followup_frequency(&oracle_followups),
+                "followup frequency cutoff {cutoff}"
+            );
+            assert_eq!(
+                rework_frequency(&new_rework),
+                rework_frequency(&oracle_rework),
+                "rework frequency cutoff {cutoff}"
+            );
+        }
+
+        // Spot-checks below run against the final cutoff oracle. They pin
+        // independently hand-derived semantics, not implementation output.
+        let prefix = &ordered[..];
+        let (_, metrics) = crate::analysis::history::analyze(prefix);
+        let followups = followup_tuples(&detect_followups(
+            prefix,
+            &dependencies,
+            &metrics.cochange_pairs,
+            &cfg,
+        ));
+        let rework = rework_tuples(&detect_rework(
+            prefix,
+            &dependencies,
+            &metrics.cochange_pairs,
+            &cfg,
+        ));
+        let has_followup = |source: &str, target: &str| {
+            followups
+                .iter()
+                .any(|entry| entry.0 == source && entry.2 == target)
+        };
+
+        // 7d boundary: k0->k3 (delay exactly 604800) is a follow-up;
+        // k0->k4 (604801) is not.
+        assert!(has_followup("k0", "k3"));
+        assert!(!has_followup("k0", "k4"));
+        // 14d boundary: k0->k5 rework (delay exactly 1209600) exists;
+        // k0->k6 (1209601) does not.
+        assert!(
+            rework
+                .iter()
+                .any(|entry| entry.1 == "k0" && entry.2 == "k5")
+        );
+        assert!(
+            !rework
+                .iter()
+                .any(|entry| entry.1 == "k0" && entry.2 == "k6")
+        );
+        // Precedence: k2 overlaps k0 ({b}) and is co-change-linked too, but
+        // the observed same-file-fix reason wins.
+        let k2k0 = followups
+            .iter()
+            .find(|entry| entry.0 == "k0" && entry.2 == "k2")
+            .expect("k0->k2 follow-up");
+        assert_eq!(k2k0.5, "same-file-fix");
+        // Derived reasons: k2 vs k1 is disjoint but co-change-linked
+        // ((a,b) co-occurred in k0).
+        let k2k1 = followups
+            .iter()
+            .find(|entry| entry.0 == "k1" && entry.2 == "k2")
+            .expect("k1->k2 follow-up");
+        assert_eq!(k2k1.5, "co-change-history");
+        // k8 vs k0 is disjoint, not co-change-linked, but dependency-linked
+        // ((b,e) edge).
+        let k8k0 = followups
+            .iter()
+            .find(|entry| entry.0 == "k0" && entry.2 == "k8")
+            .expect("k0->k8 follow-up");
+        assert_eq!(k8k0.5, "dependency");
+        // Revert rule beats repeated-touch for the rev commit.
+        assert!(
+            rework
+                .iter()
+                .any(|entry| entry.1 == "k1" && entry.2 == "rev" && entry.4 == "revert")
+        );
+        // Related-fix: k5 "fix edge case" [b] is disjoint from k8 [e] but
+        // dependency-related.
+        assert!(
+            rework
+                .iter()
+                .any(|entry| entry.1 == "k8" && entry.2 == "k5" && entry.4 == "related-fix")
+        );
+        // Equal-timestamp pair k1/k1b never observe each other: no record in
+        // either direction.
+        assert!(!has_followup("k1", "k1b"));
+        assert!(!has_followup("k1b", "k1"));
+        assert!(
+            !rework
+                .iter()
+                .any(|entry| (entry.1 == "k1" && entry.2 == "k1b")
+                    || (entry.1 == "k1b" && entry.2 == "k1"))
+        );
+    }
+
+    #[test]
+    fn incremental_followup_rework_handles_empty_history() {
+        let cfg = config();
+        let accumulator = FollowupReworkPrefixAccumulator::new(&[], cfg);
+        let (followups, rework) = accumulator.materialize(&HashMap::new());
+        assert!(followups.followups.is_empty());
+        assert_eq!(followups.total, 0);
+        assert!(rework.events.is_empty());
+        assert_eq!(rework.total, 0);
+
+        let ghost = author_commit("ghost", None, None, "ghost", vec![file("a.rs")]);
+        let mut accumulator = FollowupReworkPrefixAccumulator::new(&[], cfg);
+        accumulator.advance(std::slice::from_ref(&ghost));
+        let (followups, rework) = accumulator.materialize(&HashMap::new());
+        assert!(followups.followups.is_empty());
+        assert!(rework.events.is_empty());
     }
 }

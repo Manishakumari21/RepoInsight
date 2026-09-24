@@ -66,37 +66,34 @@ function analysisStub(): RepositoryAnalysis {
 }
 
 describe('Investigation navigation', () => {
-  it('shows four coherent sections', () => {
+  it('shows coherent workbench sections', () => {
     render(
       <Sidebar
         sourceLabel="owner/repo"
         branch="main"
-        section="overview"
-        onSection={() => {}}
+        view="overview"
+        onNavigate={() => {}}
         predictionCount={0}
         modelOn={false}
         collapsed={false}
         onToggleCollapse={() => {}}
       />,
     )
-    for (const item of ['Overview', 'Explore', 'Predict', 'History']) {
-      expect(screen.getByTitle(item)).toBeInTheDocument()
+    for (const item of ['Overview', 'Structure', 'Timeline', 'Coupling', 'Predictions', 'Evidence']) {
+      expect(screen.getByTitle(item, { exact: false })).toBeInTheDocument()
     }
-    expect(screen.queryByTitle('Predictions')).not.toBeInTheDocument()
     expect(screen.queryByTitle('Ripple')).not.toBeInTheDocument()
   })
 
-  it('renders Repository / Section / Sub / File breadcrumbs', () => {
+  it('renders Repository / Section / File breadcrumbs', () => {
     render(
       <Breadcrumbs
-        section="predict"
-        subLabel="Predictions"
+        trail={[{ label: 'Predictions' }]}
         file="src/auth.ts"
-        onSection={() => {}}
+        onHome={() => {}}
       />,
     )
     expect(screen.getByText('RepoInsight')).toBeInTheDocument()
-    expect(screen.getByText('Predict')).toBeInTheDocument()
     expect(screen.getByText('Predictions')).toBeInTheDocument()
     expect(screen.getByText('src/auth.ts')).toBeInTheDocument()
   })
@@ -162,8 +159,8 @@ describe('OverviewPage investigation', () => {
         predictions={[makePrediction('src/auth.ts', 0.9)]}
         predictionsAvailable
         onOpenFile={onOpenFile}
-        onOpenGraph={() => {}}
-        onSection={() => {}}
+        onOpenArea={() => {}}
+        onOpenHistory={() => {}}
       />,
     )
     expect(screen.getByText('Repository Signals')).toBeInTheDocument()
@@ -173,7 +170,7 @@ describe('OverviewPage investigation', () => {
   })
 
   it('navigates recent activity to history', () => {
-    const onSection = vi.fn()
+    const onOpenHistory = vi.fn()
     render(
       <OverviewPage
         analysis={analysisStub()}
@@ -181,12 +178,12 @@ describe('OverviewPage investigation', () => {
         predictions={[]}
         predictionsAvailable={false}
         onOpenFile={() => {}}
-        onOpenGraph={() => {}}
-        onSection={onSection}
+        onOpenArea={() => {}}
+        onOpenHistory={onOpenHistory}
       />,
     )
     fireEvent.click(screen.getByText('fix auth'))
-    expect(onSection).toHaveBeenCalledWith('history')
+    expect(onOpenHistory).toHaveBeenCalled()
   })
 })
 

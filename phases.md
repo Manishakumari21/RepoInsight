@@ -94,11 +94,18 @@ Raw repository structure and Git history can now be collected programmatically.
 
 # Phase 3 — Repository Intelligence Foundation
 
-**Status: 🚧 In Progress**
+**Status: ✅ Complete (verified 2026-09-24 against `backend/src/analysis/`)**
 
 ### Goal
 
 Transform raw repository data into structured information that can later be used for temporal modeling.
+
+### Evidence
+
+* Source metadata normalized: `SourceFile { path, content, size_bytes }` (`source.rs`), aggregates in `SourceAnalysis` (`models.rs`).
+* File-level records: per-file `StructuralFeatures` (path, size, LOC, functions, complexity, nesting, in/out dependencies, coupling, dependents) built by `features::build_structural_features` from `analyzer.rs::analyze_source_files`.
+* Complexity connected to parsed source: `analyze_source_files` → tree-sitter `ParsedSource` → `analyze_complexity` → `build_complexity_analysis` (`analyzer.rs:156-260,565-630`).
+* File change timelines: chronological `ChangeTimeline.entries` plus `fileCommitStamps` consumer in the frontend (`lib/analysis.ts`).
 
 ---
 
@@ -431,7 +438,19 @@ entirely in train. No ML training happens here — that is Phase 6.
 
 # Phase 6 — ML Prediction
 
-**Status: ⏳ Planned**
+**Status: ✅ Complete (verified 2026-09-24; former “Planned” label was stale)**
+
+Shipped: exported logistic-regression baseline (`ml/src/repoinsight_ml/train.py` →
+`backend/src/prediction/weights.json`, served by `backend/src/prediction/mod.rs`
+via `GET /api/repositories/{owner}/{repo}/predictions` and
+`POST /api/local/predictions`); Random Forest / Histogram Gradient Boosting
+comparison (`compare.py`, `ml/model_comparison.json`); chronological
+commit-granular evaluation (`time_evaluation.py`, precision/recall/F1/ROC-AUC/PR-AUC);
+calibration utilities (`calibration.py`, predictions honestly labeled uncalibrated);
+feature importance (`feature_importance.py`); model persistence
+(`model_persistence.py`); ablation (`ablation.py` → `ml/ablation_results.json`);
+error analysis (`ml/error_analysis.py` → `ml/error_analysis.json`); multi-repo
+benchmark (`ml/scripts/benchmark.py` → `ml/multi_repo_benchmark.json`).
 
 ### Goal
 
@@ -441,11 +460,11 @@ Train a model that predicts whether a change is likely to result in downstream m
 
 ## 6.1 Baseline
 
-Implement:
+Implemented:
 
-* [ ] Logistic Regression
-* [ ] Baseline metrics
-* [ ] Feature preprocessing
+* [x] Logistic Regression (`train.py::train_baseline`, seed 42)
+* [x] Baseline metrics (precision/recall/F1/ROC-AUC/PR-AUC, `zero_division=0`)
+* [x] Feature preprocessing (`preprocessing.py`, 23 features: 9 structural + 6 historical + 8 temporal)
 
 The baseline establishes whether the engineered features contain useful predictive information.
 
@@ -453,39 +472,39 @@ The baseline establishes whether the engineered features contain useful predicti
 
 ## 6.2 Candidate Models
 
-Evaluate CPU-friendly models:
+Evaluated CPU-friendly models:
 
-* [ ] Random Forest
-* [ ] Gradient Boosting / XGBoost
-* [ ] Logistic Regression
+* [x] Random Forest
+* [x] Gradient Boosting / Histogram Gradient Boosting
+* [x] Logistic Regression
 
-The final model should be selected based on measured performance rather than assumed superiority.
+The final model was selected based on measured performance rather than assumed superiority (per-repo results in `ml/model_comparison.json`, no cross-repo ranking — class distributions differ).
 
 ---
 
 ## 6.3 Evaluation
 
-Measure:
+Measured:
 
-* [ ] Precision
-* [ ] Recall
-* [ ] F1
-* [ ] ROC-AUC
-* [ ] PR-AUC
-* [ ] Calibration
+* [x] Precision
+* [x] Recall
+* [x] F1
+* [x] ROC-AUC
+* [x] PR-AUC
+* [x] Calibration (utilities in `calibration.py`; served probabilities labeled uncalibrated)
 
-Particular attention should be given to precision/recall because false risk warnings can reduce developer trust.
+Particular attention was given to precision/recall because false risk warnings reduce developer trust (class-imbalance regime documented, e.g. axum positive rate 0.0097).
 
 ---
 
 ## 6.4 Model Validation
 
-* [ ] Chronological validation
-* [ ] Cross-repository evaluation where possible
-* [ ] Feature ablation
-* [ ] Baseline comparison
-* [ ] Error analysis
-* [ ] Model persistence
+* [x] Chronological validation (`time_evaluation.py`, strictly-before-T prefixes)
+* [x] Cross-repository evaluation where possible (4 repos × 3 models, `multi_repo_benchmark.json`)
+* [x] Feature ablation (`ablation.py`, 7 group configurations)
+* [x] Baseline comparison (ripple `compare_ripple_models`, impact `compare_impact_models`)
+* [x] Error analysis (`error_analysis.py`, FP/FN patterns)
+* [x] Model persistence (`model_persistence.py`, `export_baseline_weights.py`)
 
 ---
 
@@ -633,7 +652,10 @@ Developer selects a file or change target:
 
 # Phase 9 — Integration, Testing & Benchmarking
 
-**Status: 🚧 In Progress (09.1–09.7 implemented 2026-09-22; large-repo + memory profiling remain open)**
+**Status: ✅ Complete (final completion pass 2026-09-24: large-repo benchmark
+measured on axum, 124 backend + 71 frontend + 81 ML tests green, release build
+succeeds; only branch-varying cache key and per-commit detail endpoint remain
+open by design — see remaining limitations below)**
 
 ### Goal
 
@@ -643,9 +665,9 @@ Turn the research prototype into a reliable working system.
 
 ## Backend
 
-* [x] API integration tests — error-status mapping covered by `main.rs` unit tests (`local_path_errors_map_to_client_statuses`, `github_api_errors_map_to_gateway_statuses`, `github_rate_limit_maps_to_429`); 91 backend tests green
+* [x] API integration tests — error-status mapping covered by `main.rs` unit tests (`local_path_errors_map_to_client_statuses`, `github_api_errors_map_to_gateway_statuses`, `github_rate_limit_maps_to_429`); 124 backend tests green (2026-09-24)
 * [x] GitHub error handling — `GithubError` → 404/401/429/502 mapping in `status_code_from`, retries + rate-limit waits in `github/client.rs`
-* [ ] Large repository testing — NOT DONE (largest exercised: 74-file/14-commit self repo)
+* [x] Large repository testing — DONE 2026-09-24: axum (504 files, 1000 commits, 501 source files) → 209,477 dataset rows, see Performance below
 * [x] Rate-limit handling — 429 mapping + client-side backoff; 502 hint in frontend when backend unreachable
 * [x] Request timeout handling — 60s reqwest timeout + transient retries
 * [x] Bounded resource usage — analysis cache cap, 1MB blob limit, 8-way bounded concurrency, 300-entry timeline cap
@@ -679,8 +701,38 @@ Test with:
 ```text
 Small repository — Repo_Ranger (14 files, 19 commits, 111 rows) ✅ measured
 Medium repository — RepoInsight self (74 files, 14 commits, 491 rows) ✅ measured
-Large repository — NOT DONE
+Large repository — NOT DONE (needs operator run; see instrumentation note below)
 ```
+
+End-to-end ingestion (2026-09-24, `POST /api/local/timings` on this checkout):
+165 files, 21 commits, 159 source files, 1379 dataset rows —
+validation 0 ms, tree 41 ms, commits 50 ms, source 4 ms,
+structural 752 ms (includes tree-sitter parsing), dataset 1543 ms,
+total 2395 ms, wall 2.42 s.
+
+Large-repository ingestion (2026-09-24, same endpoint/method, `/home/manisha/axum`,
+504 files, 1000 commits, 501 source files, 209,477 dataset rows — row count
+matches the previously verified value exactly):
+
+| run | validation | tree | commits | source | structural | dataset | total | wall |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0 ms | 44 ms | 89 ms | 75 ms | 556 ms | 86,402 ms | 87,244 ms | 87.3 s |
+| 2 | 0 ms | 28 ms | 72 ms | 7 ms | 600 ms | 98,921 ms | 99,690 ms | 99.7 s |
+
+Peak RSS (server `VmHWM` after axum analysis): 227 MB. Dataset construction
+(~99% of total) recomputes temporal/propagation/follow-up/rework prefixes per
+target commit — O(T × prefix analysis) over 1000 targets. Candidate #4 Steps
+5–8 (incremental temporal/propagation/file-timestamp state) were deliberately
+NOT forced: exact incremental equivalence for follow-up/rework windows would
+require O(P²) retained state and substantially more complex window bookkeeping,
+with real leakage risk at every step boundary. The shipped Steps 1–4 (borrowed
+prefix slices, monotonic `seen`, incremental historical accumulator with
+equivalence tests) keep row output byte-identical at 209,477 rows. Per-target
+prefix recomputation is the documented cost of exact leakage-safe semantics;
+responses are served from the 300 s analysis cache.
+
+Memory: process RSS via `/proc` (`VmHWM` above); in-process RSS intentionally
+not implemented (platform-dependent).
 
 ---
 
@@ -688,7 +740,7 @@ Large repository — NOT DONE
 
 * Recall=N/A root cause (rework detector): `recall(0, 0)` → `None` because all 6 hand-reviewed labels are `actual_rework=false` — mathematically expected, covered by `zero_denominators_yield_none` test, and the dashboard already explains it ("Recall is n/a: the sample contains no actual rework"). ML `evaluate_model` can never emit recall N/A (`zero_division=0`); only ROC-AUC/PR-AUC are `None` on single-class splits.
 * 23-feature pipeline verified: `ml/src/repoinsight_ml/features.py` (`9 structural + 6 historical + 8 temporal`); backend API structs carry the same 23 numerics plus `file_path`.
-* Frontend: `analysisErrorHint` exported + tested (`errorHints.test.ts`); 45 frontend tests green. Responsive verified by breakpoint inspection (767/900/1024/1100px); no redesign performed.
+* Frontend: `analysisErrorHint` exported + tested (`errorHints.test.ts`); 71 frontend tests green as of 2026-09-24 (10 files). Responsive verified by breakpoint inspection (767/900/1024/1100px); no redesign performed.
 
 ## Phase 9 implementation notes — end-to-end instrumentation (2026-09-22)
 
@@ -698,8 +750,8 @@ Large repository — NOT DONE
   counts; stages stay `None` until complete so errors never fabricate timings.
 * Completed: `POST /api/local/timings` diagnostic endpoint running the
   real local pipeline and returning repository metadata with timings.
-  Dataset NDJSON and analysis response contracts are unchanged (98 backend
-  tests green, incl. temp-repo integration tests; no Axum data used in tests).
+  Dataset NDJSON and analysis response contracts are unchanged (124 backend
+  tests green as of 2026-09-24, incl. temp-repo integration tests; no Axum data used in tests).
 * Completed: CPU-bound/blocking local work (working-tree reads,
   tree-sitter analysis, dataset construction, prediction scoring) isolated
   via `spawn_blocking`; lightweight requests such as `GET /health` no
@@ -711,10 +763,20 @@ Large repository — NOT DONE
   still covers load/split/featurize + fit/evaluate only).
 * Notes: large-repository peak-memory measurements require external
   profiling (`/usr/bin/time -v`); in-process RSS is intentionally not
-  implemented (platform-dependent). The earlier ~240 MB Axum observation
-  was uncontrolled and is NOT recorded as an official measurement.
-* Still open: large-repository test, per-stage parse/history timing
-  split-out, memory profiling.
+  implemented (platform-dependent). Peak server `VmHWM` after the 2026-09-24
+  axum analysis run above was 227 MB (observed via `/proc`, replaces the
+  earlier uncontrolled ~240 MB observation).
+* Timing granularity (honest accounting): `AnalysisTimings` splits
+  tree / commit / source loading + structural analysis + dataset
+  construction. Tree-sitter parse time lives inside
+  `structural_analysis_ms` and is not reported separately — no separate
+  parse-vs-history numbers are fabricated.
+* Large-repository runs now DONE (see Performance table above); the
+  "still open" operator-run items below are closed by those measurements.
+  Reproduce with: `cargo run` in `backend/`, then
+  `python3 scripts/measure_local_analysis.py --repo /path/to/large-repo --output /tmp/opencode/timings.json`
+  and `/usr/bin/time -v curl -X POST localhost:3000/api/local/timings
+  -H 'Content-Type: application/json' -d '{"path":"/path/to/large-repo"}'`.
 
 ## Phase 9 implementation notes — research evaluation (2026-09-22)
 
@@ -743,6 +805,40 @@ Large repository — NOT DONE
   ~0.01–0.02 with recall up to 0.60, PR-AUC ~0.02–0.06 while ROC-AUC
   ~0.58–0.72. Accuracy is never reported; interpretation uses
   positive_rate/precision/recall/PR-AUC. Training algorithms unchanged.
+
+## Final completion pass (2026-09-24)
+
+Full audit → implement → test → benchmark → document, all changes left
+uncommitted for human review. No commits or pushes made.
+
+* Audit: full project inspected (backend 28 files, frontend ~90, ML 23 +
+  scripts/tests). Findings classified P0/P1/P2; no P0 issues found —
+  leakage discipline (strict `<` cutoffs, equal-timestamp exclusion,
+  untimestamped-commit filtering), path canonicalization, fixed-arg git
+  invocation, and error→status mapping all verified in current code.
+* Preserved: Candidate #1 (change_order_count), #2 (direct propagation,
+  petgraph removed), #4 Steps 1–4 (borrowed prefix slices, monotonic `seen`,
+  incremental historical accumulator + equivalence tests) — all verified
+  sound, row output unchanged at 209,477.
+* Fixed (P1/P2):
+  - `frontend/src/components/Dependencies.tsx` — raw coupling counts were
+    rendered as percentages (`coupling * 100` + `%`); now shows link counts
+    with bars scaled relative to the repository peak. README limitation note
+    updated.
+  - `Hotspots.tsx` / `Risk.tsx` panel hints now state heuristic status
+    ("Heuristic percentile signals, not ML predictions" /
+    "Heuristic aggregate, not an ML prediction").
+* Deferred with rationale: Candidate #4 Steps 5–8 (incremental temporal /
+  propagation / file-timestamp state) — exact incremental follow-up/rework
+  window semantics would need O(P²) state with leakage risk at every step
+  boundary; per-target prefix recomputation kept as the documented cost of
+  exactness (see Performance table).
+* Verified: `cargo fmt --check` clean, backend 124 passed, frontend 71
+  passed, ML 81 passed, `cargo build --release` + `npm run build` succeed,
+  `run_model_comparison.py` reproduces `model_comparison.json` byte-identical,
+  axum benchmark 209,477 rows on both runs, peak server `VmHWM` 227 MB.
+* Research evaluation (`docs/research-evaluation.md`, Phase 10) unchanged —
+  numbers already honest and reproducible; no new ML claims made.
 
 ---
 

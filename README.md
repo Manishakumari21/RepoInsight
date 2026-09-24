@@ -850,16 +850,24 @@ and reproducible.
   follow-up detection (observed/derived), rule-based candidate rework
   detection with evidence, and historical examples
 * Heuristic hotspot and difficulty scoring
-* Dashboard overview, hotspot/explorer tables, dependency/history summaries,
-  plus Sequences, Propagation History, and Historical Examples sections
-  (all labeled as observed history, no ML predictions)
+* Leakage-safe ML dataset, exported logistic-regression baseline with
+  per-file predictions (`GET /api/repositories/{owner}/{repo}/predictions`,
+  `POST /api/local/predictions`), Random Forest / HGB comparison,
+  chronological evaluation, ablation, and error analysis
+  (`ml/multi_repo_benchmark.json`, `ml/model_comparison.json`,
+  `ml/ablation_results.json`, `ml/error_analysis.json`)
+* Change Ripple Forecasting (`/ripple`) and Change Impact Simulator
+  (`/impact-simulation`), local + GitHub variants
+* Prediction explanation: evidence, confidence, historical examples,
+  recommendations, evidence panel in the dashboard
+* Workbench dashboard: Overview briefing, Structure (tree + neighborhood
+  graph + inspector), Timeline, Coupling, Predictions, Evidence —
+  all labeled observed-history vs model-output
 * In-memory analysis cache and GitHub rate-limit handling (plus retries
   for transient transport failures)
 
 ### Partially implemented
 
-* Per-file LOC/functions/symbols are computed internally but only
-  aggregates are exposed in the API response
 * Dependency resolution is heuristic; unresolved references are
   returned with a `$` prefix (and can appear as propagation targets)
 * History exposes totals, co-change pairs, temporal pairs, the
@@ -873,16 +881,14 @@ and reproducible.
 ### Planned / not implemented
 
 * Architecture graph, temporal slider, evolution replay
-* Impact Simulator, what-if analysis, evidence panel, explainability
-* ML dataset, model training, chronological evaluation
 * AI assistant, repository-context export, reports
-* Persistent database (`tests/backend` and `tests/ml` are empty;
-  `ml/src` contains only `__init__.py`)
+* Persistent database
+* Per-commit detail endpoint, branch-varying cache key
 
 ### Known limitations
 
-* The Dependencies panel scales raw coupling counts as percentages;
-  treat those bars as relative ordering, not true percentages.
+* The Dependencies panel shows raw coupling counts (links) with bars scaled
+  relative to the repository peak — not percentages.
 * The analysis cache key is `owner/repo` and does not vary by branch.
 * There is no per-file or per-commit detail endpoint yet.
 

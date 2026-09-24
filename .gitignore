@@ -1,27 +1,109 @@
+# Rust / Cargo
 target/
+**/target/
+**/.rustc_info.json
 
+# Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*$py.class
 .venv/
 venv/
+env/
+ENV/
 
+# Python tooling / caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
+
+# Python build/package artifacts
+build/
+develop-eggs/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Node / Frontend
 node_modules/
+**/node_modules/
 dist/
+**/dist/
+.vite/
+*.tsbuildinfo
 
+# Environment / Secrets
 .env
 .env.*
+!.env.example
+!.env.template
 
+# ML generated artifacts
 ml/artifacts/
-
 ml/data/*.jsonl
-
 ml/src/repoinsight_ml.egg-info/
 
-.DS_Store
-.vscode/
-.idea/
+# ML generated results
 ml/*_results.json
 ml/benchmark_*.json
 ml/error_analysis.json
 ml/model_comparison.json
 ml/multi_repo_benchmark.json
+
+# ML model / checkpoint files
+ml/**/*.pkl
+ml/**/*.pickle
+ml/**/*.joblib
+ml/**/*.pt
+ml/**/*.pth
+ml/**/*.onnx
+
+# Coverage / Test Reports
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+coverage/
+playwright-report/
+test-results/
+
+# Logs / Temporary Files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# IDE / Editor
+.vscode/
+.idea/
+*.iml
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+
+# Local cloned repositories
+local-repos/
+repos/
+repositories/
+
+# Local benchmark outputs
+benchmark-results/
+bench-results/
+local-benchmarks/
+
+# Temporary / backup files
+*.bak
+*.backup

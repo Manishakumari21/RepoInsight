@@ -15,6 +15,10 @@ export function Dependencies({
   const coverage = share(dependencies.connected_files, sourceFiles)
   const standalone = Math.max(sourceFiles - dependencies.connected_files, 0)
   const lead = dependencies.top_coupled_files[0]
+  const peakCoupling = Math.max(
+    1,
+    ...dependencies.top_coupled_files.map((file) => file.coupling),
+  )
 
   return (
     <Panel
@@ -75,7 +79,7 @@ export function Dependencies({
               <span className="lead-path" title={lead.path}>
                 {lead.path}
               </span>
-              <span className="lead-score">{(lead.coupling * 100).toFixed(0)}%</span>
+              <span className="lead-score">{formatNumber(lead.coupling)}</span>
             </div>
           )}
           {dependencies.top_coupled_files.map((file) => (
@@ -84,12 +88,14 @@ export function Dependencies({
                 <span className="coupled-path" title={file.path}>
                   {file.path}
                 </span>
-                <span className="coupled-value">{(file.coupling * 100).toFixed(0)}%</span>
+                <span className="coupled-value">
+                  {formatNumber(file.coupling)} links
+                </span>
               </div>
               <div className="bar-track">
                 <div
                   className="bar-fill"
-                  style={{ width: `${Math.min(file.coupling * 100, 100)}%` }}
+                  style={{ width: `${Math.min((file.coupling / peakCoupling) * 100, 100)}%` }}
                 />
               </div>
             </div>

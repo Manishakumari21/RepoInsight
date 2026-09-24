@@ -65,7 +65,6 @@ export function edgeMatches(
   }
 }
 
-
 export function buildNeighborhood(
   edges: PropagationEdge[],
   focus: string | null,
@@ -148,7 +147,6 @@ function materialize(edges: PropagationEdge[], keep: Set<string>): GraphData {
   return { nodes, links }
 }
 
-
 export function layoutCircle(
   nodes: GraphNode[],
   width: number,
@@ -188,7 +186,6 @@ export function layoutCircle(
   return positions
 }
 
-
 export function layoutRadial(
   nodes: GraphNode[],
   links: GraphLink[],
@@ -211,7 +208,6 @@ export function layoutRadial(
     .map((node) => node.id)
     .filter((id) => id !== focus && !neighborIds.has(id))
     .sort((a, b) => a.localeCompare(b))
-
 
   const seed = new Map<string, { x: number; y: number }>()
   seed.set(focus, { x: cx, y: cy })
@@ -287,7 +283,6 @@ export interface NodeSignalCounts {
   temporal: number
   neighbors: { id: string; signals: string[]; direction: 'out' | 'in' }[]
 }
-
 
 export function nodeSignalCounts(
   edges: PropagationEdge[],

@@ -12,7 +12,6 @@ export interface FileStats {
   size: number
 }
 
-
 export function collectFilePaths(analysis: RepositoryAnalysis): string[] {
   const paths = new Set<string>()
   for (const item of analysis.structural_features ?? []) paths.add(item.file_path)
@@ -53,7 +52,6 @@ export interface FileTreeNode {
   children: FileTreeNode[]
   isFile: boolean
 }
-
 
 export function buildFileTree(paths: string[]): FileTreeNode[] {
   const root: FileTreeNode[] = []
@@ -97,7 +95,6 @@ export function buildFileTree(paths: string[]): FileTreeNode[] {
   sortTree(root)
   return root
 }
-
 
 export function changeCounts(analysis: RepositoryAnalysis): Map<string, number> {
   const counts = new Map<string, number>()
@@ -159,4 +156,75 @@ export function cochangePartners(
   }
   partners.sort((a, b) => b.count - a.count || a.path.localeCompare(b.path))
   return partners.slice(0, Math.max(limit, 1))
+}
+
+export interface DirectoryStats {
+  directory: string
+  files: number
+  lines: number
+  changes: number
+  contributors: number
+  testFiles: number
+}
+
+export function directoryStats(analysis: RepositoryAnalysis): DirectoryStats[] {
+  const lines = new Map<string, number>()
+  for (const item of analysis.structural_features ?? []) {
+    lines.set(item.file_path, item.lines_of_code)
+  }
+  const changes = changeCounts(analysis)
+  const authors = new Map<string, Set<string>>()
+  for (const entry of analysis.timeline.entries ?? []) {
+    if (!entry.author) continue
+    for (const file of entry.files ?? []) {
+      const slash = file.lastIndexOf('/')
+      const dir = slash < 0 ? '(root)' : file.slice(0, slash)
+      let set = authors.get(dir)
+      if (!set) {
+        set = new Set<string>()
+        authors.set(dir, set)
+      }
+      set.add(entry.author)
+    }
+  }
+  const byDir = new Map<string, DirectoryStats>()
+  const ensure = (directory: string): DirectoryStats => {
+    let stats = byDir.get(directory)
+    if (!stats) {
+      stats = {
+        directory,
+        files: 0,
+        lines: 0,
+        changes: 0,
+        contributors: 0,
+        testFiles: 0,
+      }
+      byDir.set(directory, stats)
+    }
+    return stats
+  }
+  const paths = new Set<string>()
+  for (const item of analysis.structural_features ?? []) paths.add(item.file_path)
+  for (const file of changes.keys()) paths.add(file)
+  for (const path of paths) {
+    const slash = path.lastIndexOf('/')
+    const dir = slash < 0 ? '(root)' : path.slice(0, slash)
+    const stats = ensure(dir)
+    stats.files += 1
+    stats.lines += lines.get(path) ?? 0
+    stats.changes += changes.get(path) ?? 0
+    if (fileKind(path) === 'test') stats.testFiles += 1
+  }
+  for (const [dir, set] of authors) ensure(dir).contributors = set.size
+  return [...byDir.values()].sort((a, b) => b.changes - a.changes || a.directory.localeCompare(b.directory))
+}
+
+export type ActivityLevel = 'high' | 'medium' | 'low'
+
+export function activityLevel(changes: number, peak: number): ActivityLevel {
+  if (peak <= 0 || changes <= 0) return 'low'
+  const ratio = changes / peak
+  if (ratio >= 0.6) return 'high'
+  if (ratio >= 0.25) return 'medium'
+  return 'low'
 }

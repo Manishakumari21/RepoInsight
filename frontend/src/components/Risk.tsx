@@ -40,7 +40,7 @@ export function Risk({
   ]
 
   return (
-    <Panel title="Repository Risk" hint="Aggregate difficulty score">
+    <Panel title="Repository Risk" hint="Heuristic aggregate, not an ML prediction">
       <div className="risk-grid">
         <div className="gauge-wrap">
           <div

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ChangeTimeline } from '../types'
 import { formatDate, shortSha } from '../types'
 import { Panel } from './Panel'
@@ -6,18 +6,24 @@ import { Panel } from './Panel'
 export function HistoryView({
   timeline,
   focusFile,
+  focusSha,
   onOpenFile,
   onOpenPrediction,
   onOpenGraph,
 }: {
   timeline: ChangeTimeline
   focusFile?: string | null
+  focusSha?: string | null
   onOpenFile: (path: string) => void
   onOpenPrediction?: (path: string) => void
   onOpenGraph?: (path: string) => void
 }) {
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(focusSha ?? null)
   const [filter, setFilter] = useState('')
+
+  useEffect(() => {
+    if (focusSha) setSelected(focusSha)
+  }, [focusSha])
   const entries = [...(timeline.entries ?? [])].reverse()
 
   const activeFilter = (focusFile ?? filter).trim().toLowerCase()

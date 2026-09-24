@@ -12,6 +12,7 @@ use crate::analysis::{
     features::StructuralFeatures,
     historical_features::{self, HistoricalFeatures},
     history,
+    models::{FollowUpAnalysis, PropagationAnalysis, ReworkAnalysis, TemporalAnalysis},
     propagation_history::{self, PropagationConfig},
     temporal_features::{self, TemporalFeatures},
 };
@@ -59,20 +60,71 @@ pub fn build_dataset(
 ) -> Vec<DatasetRow> {
     let ordered = timestamped(commits);
     let mut rows = Vec::new();
+    // Monotonic historical file set: before rows for timestamp T are
+    // emitted, `seen` holds exactly the files touched by commits with
+    // ts < T. Afterwards it is advanced through the whole T group at once,
+    // so equal-timestamp commits never observe each other. `advanced` marks
+    // how much of `ordered` has been folded into `seen`.
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut advanced = 0usize;
+    // Incremental twin of `build_historical_prefix`: advanced over the same
+    // grouped cutoff ranges as `seen`, so it always represents exactly the
+    // commits with ts < current. Materialized per target into the identical
+    // output shape the downstream code already consumes.
+    let mut history_accum = historical_features::HistoricalPrefixAccumulator::default();
+    let mut history_advanced = 0usize;
+    // Incremental twin of `history::temporal_analysis`: advanced over the same
+    // grouped cutoff ranges as `seen`, so it always represents exactly the
+    // commits with ts < current. Materialized per target into the identical
+    // top-50 `TemporalAnalysis` the downstream code already consumes.
+    let mut temporal_accum = history::TemporalPrefixAccumulator::default();
+    let mut temporal_advanced = 0usize;
+    // Incremental twin of `history::build_propagation`: static dependency
+    // contributions folded once, co-change contributions folded per newly
+    // eligible commit; the current top-50 temporal list is folded at
+    // materialize time. The merged map stays full so late-rising pairs can
+    // always enter the top 100.
+    let mut propagation_accum = history::PropagationPrefixAccumulator::new(dependencies);
+    let mut propagation_advanced = 0usize;
+    // Incremental twin of the per-target `file_times` map: full per-file
+    // timestamp vectors over exactly the commits with ts < current,
+    // maintained in chronological push order. Lent by reference to the
+    // temporal-feature builder, so no per-target rebuild or re-sort.
+    let mut file_times_accum = temporal_features::FileTimesAccumulator::default();
+    let mut file_times_advanced = 0usize;
+    // Incremental twin of `detect_followups` / `detect_rework`: pair
+    // discovery folded once per newly eligible commit; classification runs at
+    // materialize time with the present prefix co-change map, exactly as the
+    // oracles classify every pair with the full prefix map on each call.
+    let mut followup_rework_accum =
+        propagation_history::FollowupReworkPrefixAccumulator::new(dependencies, config.propagation);
+    let mut followup_rework_advanced = 0usize;
 
     for (index, target) in ordered.iter().enumerate() {
         let current = target.timestamp.expect("timestamped above");
-        let prefix: Vec<&Commit> = ordered[..index]
-            .iter()
-            .filter(|commit| commit.timestamp.expect("timestamped above") < current)
-            .collect();
-        let prefix_owned: Vec<Commit> = prefix.into_iter().cloned().collect();
+        // `ordered` is sorted by (timestamp, sha), so every commit with
+        // ts < current precedes every commit with ts >= current: the prefix
+        // is the contiguous slice `ordered[..k]`. This replaces the previous
+        // filter-then-clone with a borrow; the selected set and order are
+        // identical, including equal-timestamp exclusion (strict `<`) and
+        // the absence of untimestamped commits (filtered by `timestamped`).
+        let prefix_len = ordered[..index]
+            .partition_point(|commit| commit.timestamp.expect("timestamped above") < current);
+        // `current` is non-decreasing over targets, so `prefix_len` only
+        // grows: each historical commit is folded into `seen` exactly once.
+        for commit in &ordered[advanced..prefix_len] {
+            seen.extend(
+                history::relevant_files(&commit.files)
+                    .into_iter()
+                    .map(|file| file.filename),
+            );
+        }
+        advanced = prefix_len;
 
         let changed: HashSet<String> = history::relevant_files(&target.files)
             .iter()
             .map(|file| file.filename.clone())
             .collect();
-        let seen = files_in(&prefix_owned);
 
         let positives: Vec<&String> = changed
             .iter()
@@ -88,12 +140,37 @@ pub fn build_dataset(
             continue;
         }
 
-        let historical = historical_features::build_historical_prefix(
-            &ordered,
+        let historical = {
+            history_accum.advance(&ordered[history_advanced..prefix_len]);
+            history_advanced = prefix_len;
+            history_accum.materialize(current, config.recent_window_secs)
+        };
+        let temporal = {
+            temporal_accum.advance(&ordered[temporal_advanced..prefix_len]);
+            temporal_advanced = prefix_len;
+            temporal_accum.materialize()
+        };
+        let propagation = {
+            propagation_accum.advance(&ordered[propagation_advanced..prefix_len]);
+            propagation_advanced = prefix_len;
+            propagation_accum.materialize(&temporal)
+        };
+        file_times_accum.advance(&ordered[file_times_advanced..prefix_len]);
+        file_times_advanced = prefix_len;
+        let (followups, rework) = {
+            followup_rework_accum.advance(&ordered[followup_rework_advanced..prefix_len]);
+            followup_rework_advanced = prefix_len;
+            followup_rework_accum.materialize(history_accum.cochange_pairs())
+        };
+        let temporal = temporal_for_prefix(
+            &temporal,
+            &propagation,
+            file_times_accum.file_times(),
+            &followups,
+            &rework,
+            config,
             current,
-            config.recent_window_secs,
         );
-        let temporal = temporal_for_prefix(&prefix_owned, dependencies, config, current);
 
         let mut candidates: Vec<(&String, u8)> = positives
             .iter()
@@ -152,27 +229,14 @@ fn files_in(commits: &[Commit]) -> HashSet<String> {
 }
 
 fn temporal_for_prefix(
-    prefix: &[Commit],
-    dependencies: &[DependencyEdge],
+    temporal: &TemporalAnalysis,
+    propagation: &PropagationAnalysis,
+    file_times: &HashMap<String, Vec<i64>>,
+    followups: &FollowUpAnalysis,
+    rework: &ReworkAnalysis,
     config: &DatasetConfig,
     current: i64,
 ) -> HashMap<String, TemporalFeatures> {
-    let (_, metrics) = history::analyze(prefix);
-    let temporal = history::temporal_analysis(prefix);
-    let propagation = history::build_propagation(&temporal, &metrics.cochange_pairs, dependencies);
-    let followups = propagation_history::detect_followups(
-        prefix,
-        dependencies,
-        &metrics.cochange_pairs,
-        &config.propagation,
-    );
-    let rework = propagation_history::detect_rework(
-        prefix,
-        dependencies,
-        &metrics.cochange_pairs,
-        &config.propagation,
-    );
-
     let mut followup_frequency: HashMap<String, usize> = HashMap::new();
     for followup in &followups.followups {
         let files: HashSet<&String> = followup
@@ -190,25 +254,12 @@ fn temporal_for_prefix(
         *rework_frequency.entry(event.file.clone()).or_insert(0) += 1;
     }
 
-    let mut file_times: HashMap<String, Vec<i64>> = HashMap::new();
-    for commit in prefix {
-        let Some(timestamp) = commit.timestamp else {
-            continue;
-        };
-        for file in history::relevant_files(&commit.files) {
-            file_times.entry(file.filename).or_default().push(timestamp);
-        }
-    }
-    for stamps in file_times.values_mut() {
-        stamps.sort_unstable();
-    }
-
     temporal_features::build_temporal_features(
-        &temporal,
-        &propagation,
+        temporal,
+        propagation,
         &followup_frequency,
         &rework_frequency,
-        &file_times,
+        file_times,
         current,
         config.propagation.sequence_window_secs,
     )
@@ -531,6 +582,54 @@ mod tests {
             .find(|row| row.commit_sha == "c3" && row.file_path == "b.rs")
             .unwrap();
         assert_eq!(last.historical.previous_change_count, 1);
+    }
+
+    #[test]
+    fn prefix_slice_excludes_equal_timestamps_and_ghosts() {
+        let commits = vec![
+            commit("c1", Some(100), vec![file("a.rs", 1, 0)]),
+            commit(
+                "ghost",
+                None,
+                vec![file("a.rs", 50, 50), file("b.rs", 50, 50)],
+            ),
+            commit("c2", Some(100), vec![file("b.rs", 1, 0)]),
+            commit(
+                "c3",
+                Some(200),
+                vec![file("a.rs", 1, 0), file("b.rs", 1, 0)],
+            ),
+        ];
+
+        let rows = build_dataset(
+            &commits,
+            &structural_index(),
+            &[],
+            &DatasetConfig::default(),
+        );
+
+        assert_eq!(rows.len(), 4);
+        assert!(rows.iter().all(|row| row.commit_sha != "ghost"));
+
+        let second = rows
+            .iter()
+            .find(|row| row.commit_sha == "c2" && row.file_path == "b.rs")
+            .unwrap();
+        assert_eq!(second.historical.previous_change_count, 0);
+        assert_eq!(second.historical.time_since_last_change_secs, None);
+
+        let third_a = rows
+            .iter()
+            .find(|row| row.commit_sha == "c3" && row.file_path == "a.rs")
+            .unwrap();
+        assert_eq!(third_a.historical.previous_change_count, 1);
+        assert_eq!(third_a.historical.historical_churn, 1);
+
+        let third_b = rows
+            .iter()
+            .find(|row| row.commit_sha == "c3" && row.file_path == "b.rs")
+            .unwrap();
+        assert_eq!(third_b.historical.previous_change_count, 1);
     }
 
     #[test]
