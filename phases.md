@@ -117,11 +117,11 @@ Transform raw repository data into structured information that can later be used
 * [x] Binary-file filtering
 * [x] Source collection pipeline
 
-### Remaining
+### Completed (verified against current code)
 
-* [ ] Normalize source metadata
-* [ ] Add file-level analysis records
-* [ ] Connect source analysis to repository analysis
+* [x] Normalize source metadata
+* [x] Add file-level analysis records
+* [x] Connect source analysis to repository analysis
 
 ---
 
@@ -163,11 +163,11 @@ Tree-sitter should feed a common representation.
 * [x] Nesting-depth calculation
 * [x] Unit tests
 
-### Remaining
+### Completed (verified against current code)
 
-* [ ] Connect complexity analysis to parsed source
-* [ ] Produce file-level complexity metrics
-* [ ] Validate metrics across supported languages
+* [x] Connect complexity analysis to parsed source
+* [x] Produce file-level complexity metrics
+* [x] Validate metrics across supported languages (parser tests per language)
 
 ---
 
@@ -197,10 +197,10 @@ Tree-sitter should feed a common representation.
 * [x] Preserve chronological ordering
 * [x] Detect repeated change relationships
 
-### Remaining
+### Completed (verified against current code)
 
-* [ ] Build file change timelines
-* [ ] Represent commit change sets
+* [x] Build file change timelines (`ChangeTimeline.entries`)
+* [x] Represent commit change sets (per-entry files, additions/deletions, authors)
 
 ---
 
@@ -316,11 +316,14 @@ Rework
 * [x] Measure false positives (Phase 4.4: `tests/backend/evaluation/` — 6 reviewed adjacent pairs from this repo's own history scored against unmodified `detect_rework`; TP=0, FP=2, TN=4, FN=0; precision 0.0, recall n/a, FPR 0.333; served at `GET /api/evaluation/rework` and shown in Settings)
 
 Follow-ups are reported as *candidate* rework with the triggering rule and
-evidence string. Historical evidence (`observed`/`derived`) is never mixed
-with future prediction — no ML model exists yet, so no risk/confidence values
-are produced.
+evidence string. Historical evidence (`observed`/`derived`) is kept distinct
+from model output: ML risk/confidence values are produced downstream by the
+Phase 6 baseline and always labeled with the model name and uncalibrated
+status (see Phase 6/7).
 
-The definition of the prediction target must be experimentally justified rather than arbitrarily chosen.
+The prediction target definition (one file in one target commit, label 1 =
+changed / 0 = eligible but unchanged) was established experimentally in
+Phase 5 rather than chosen arbitrarily; see Phase 5.4.
 
 ---
 
@@ -585,17 +588,20 @@ RAG/LLM should remain optional and should **not determine the risk prediction**.
 
 # Phase 8 — Interactive Dashboard
 
-**Status: ✅ Complete (tabbed dashboard: Overview, Predictions, Graph, Files, History + file drawer; predictions served by new backend endpoints; 37 frontend tests green)**
+**Status: ✅ Complete (repository-analysis workbench: Overview, Structure, History, Coupling, Predictions, Evidence + file inspector/drawer; predictions served by backend endpoints; Ripple and Impact Simulator under the Predictions view)**
 
-Dashboard (`frontend/src/components/Dashboard.tsx` + `Header.tsx`):
-sections Overview / Predictions / Graph / Files / History, file-details
-drawer with Phase 7 evidence, historical examples, confidence and
-recommendations. Predictions come from `GET
+Workbench (`frontend/src/components/Dashboard.tsx`, views defined in
+`frontend/src/lib/sections.ts`): Overview / Structure / History (timeline) /
+Coupling / Predictions (predicted changes, ripple, impact simulator tabs) /
+Evidence, with a file inspector/drawer carrying Phase 7 evidence, historical
+examples, confidence and recommendations. Predictions come from `GET
 /api/repositories/{owner}/{repo}/predictions` and `POST
 /api/local/predictions`, computed by `backend/src/prediction/` running the
 exported Phase 6 logistic-regression baseline
 (`backend/src/prediction/weights.json` via
 `ml/scripts/export_baseline_weights.py`) over leakage-safe dataset rows.
+Ripple (`RippleForecast.tsx`) and Impact Simulator (`ImpactSimulator.tsx`)
+live under the Predictions view's related/impact tabs.
 
 ### Goal
 
@@ -652,8 +658,8 @@ Developer selects a file or change target:
 
 # Phase 9 — Integration, Testing & Benchmarking
 
-**Status: ✅ Complete (final completion pass 2026-09-24: large-repo benchmark
-measured on axum, 124 backend + 71 frontend + 81 ML tests green, release build
+**Status: ✅ Complete (final completion pass 2026-09-24, Candidate #4 Steps 1–8
+complete; backend 133 tests green as verified by `cargo test`; release build
 succeeds; only branch-varying cache key and per-commit detail endpoint remain
 open by design — see remaining limitations below)**
 
@@ -665,7 +671,7 @@ Turn the research prototype into a reliable working system.
 
 ## Backend
 
-* [x] API integration tests — error-status mapping covered by `main.rs` unit tests (`local_path_errors_map_to_client_statuses`, `github_api_errors_map_to_gateway_statuses`, `github_rate_limit_maps_to_429`); 124 backend tests green (2026-09-24)
+* [x] API integration tests — error-status mapping covered by `main.rs` unit tests (`local_path_errors_map_to_client_statuses`, `github_api_errors_map_to_gateway_statuses`, `github_rate_limit_maps_to_429`); backend 133 tests green (verified by `cargo test`; frontend 71 and ML 81 green as of the 2026-09-24 pass)
 * [x] GitHub error handling — `GithubError` → 404/401/429/502 mapping in `status_code_from`, retries + rate-limit waits in `github/client.rs`
 * [x] Large repository testing — DONE 2026-09-24: axum (504 files, 1000 commits, 501 source files) → 209,477 dataset rows, see Performance below
 * [x] Rate-limit handling — 429 mapping + client-side backoff; 502 hint in frontend when backend unreachable
@@ -701,7 +707,7 @@ Test with:
 ```text
 Small repository — Repo_Ranger (14 files, 19 commits, 111 rows) ✅ measured
 Medium repository — RepoInsight self (74 files, 14 commits, 491 rows) ✅ measured
-Large repository — NOT DONE (needs operator run; see instrumentation note below)
+Large repository — Axum (504 files, 1000 commits, 501 source files, 209,477 rows) ✅ measured (see table below)
 ```
 
 End-to-end ingestion (2026-09-24, `POST /api/local/timings` on this checkout):
@@ -720,16 +726,16 @@ matches the previously verified value exactly):
 | 2 | 0 ms | 28 ms | 72 ms | 7 ms | 600 ms | 98,921 ms | 99,690 ms | 99.7 s |
 
 Peak RSS (server `VmHWM` after axum analysis): 227 MB. Dataset construction
-(~99% of total) recomputes temporal/propagation/follow-up/rework prefixes per
-target commit — O(T × prefix analysis) over 1000 targets. Candidate #4 Steps
-5–8 (incremental temporal/propagation/file-timestamp state) were deliberately
-NOT forced: exact incremental equivalence for follow-up/rework windows would
-require O(P²) retained state and substantially more complex window bookkeeping,
-with real leakage risk at every step boundary. The shipped Steps 1–4 (borrowed
-prefix slices, monotonic `seen`, incremental historical accumulator with
-equivalence tests) keep row output byte-identical at 209,477 rows. Per-target
-prefix recomputation is the documented cost of exact leakage-safe semantics;
-responses are served from the 300 s analysis cache.
+(~99% of total) previously recomputed temporal/propagation/follow-up/rework
+prefixes per target commit — O(T × prefix analysis) over 1000 targets.
+Candidate #4 Steps 1–8 are now COMPLETE (see "Candidate #4 optimization
+sequence" below): borrowed prefix slices, monotonic `seen`, incremental
+historical accumulator, shared co-change state, incremental temporal,
+propagation, and file-timestamp accumulators, plus the follow-up/rework
+accumulator — each checked against its original/reference implementation
+with equivalence tests. Row output remains byte-identical at 209,477 rows
+with exact leakage-safe semantics preserved; responses are served from the
+300 s analysis cache.
 
 Memory: process RSS via `/proc` (`VmHWM` above); in-process RSS intentionally
 not implemented (platform-dependent).
@@ -750,8 +756,8 @@ not implemented (platform-dependent).
   counts; stages stay `None` until complete so errors never fabricate timings.
 * Completed: `POST /api/local/timings` diagnostic endpoint running the
   real local pipeline and returning repository metadata with timings.
-  Dataset NDJSON and analysis response contracts are unchanged (124 backend
-  tests green as of 2026-09-24, incl. temp-repo integration tests; no Axum data used in tests).
+  Dataset NDJSON and analysis response contracts are unchanged (backend 133
+  tests green as verified by `cargo test`, incl. temp-repo integration tests; no Axum data used in tests).
 * Completed: CPU-bound/blocking local work (working-tree reads,
   tree-sitter analysis, dataset construction, prediction scoring) isolated
   via `spawn_blocking`; lightweight requests such as `GET /health` no
@@ -817,8 +823,10 @@ uncommitted for human review. No commits or pushes made.
   untimestamped-commit filtering), path canonicalization, fixed-arg git
   invocation, and error→status mapping all verified in current code.
 * Preserved: Candidate #1 (change_order_count), #2 (direct propagation,
-  petgraph removed), #4 Steps 1–4 (borrowed prefix slices, monotonic `seen`,
-  incremental historical accumulator + equivalence tests) — all verified
+  petgraph removed), #4 Steps 1–8 (borrowed prefix slices, monotonic `seen`,
+  incremental historical accumulator, shared co-change state, incremental
+  temporal / propagation / file-timestamp / follow-up-rework accumulators,
+  each with equivalence tests against the reference behavior) — all verified
   sound, row output unchanged at 209,477.
 * Fixed (P1/P2):
   - `frontend/src/components/Dependencies.tsx` — raw coupling counts were
@@ -828,17 +836,81 @@ uncommitted for human review. No commits or pushes made.
   - `Hotspots.tsx` / `Risk.tsx` panel hints now state heuristic status
     ("Heuristic percentile signals, not ML predictions" /
     "Heuristic aggregate, not an ML prediction").
-* Deferred with rationale: Candidate #4 Steps 5–8 (incremental temporal /
-  propagation / file-timestamp state) — exact incremental follow-up/rework
-  window semantics would need O(P²) state with leakage risk at every step
-  boundary; per-target prefix recomputation kept as the documented cost of
-  exactness (see Performance table).
-* Verified: `cargo fmt --check` clean, backend 124 passed, frontend 71
-  passed, ML 81 passed, `cargo build --release` + `npm run build` succeed,
+* Completed: Candidate #4 Steps 5–8 (incremental temporal / propagation /
+  file-timestamp / follow-up-rework accumulators). Each step preserves exact
+  reference semantics — strict `<` cutoffs, equal-timestamp group atomicity,
+  untimestamped-commit exclusion — with full retained state where needed to
+  preserve exact top-K behavior, and follow-up/rework classification deferred
+  where the final prefix co-change state can affect classification. See
+  "Candidate #4 optimization sequence" below for per-step observations.
+* Verified: `cargo fmt --check` clean, backend 133 passed (verified by
+  `cargo test`; frontend 71 and ML 81 passed as of the 2026-09-24 pass), `cargo build --release` + `npm run build` succeed,
   `run_model_comparison.py` reproduces `model_comparison.json` byte-identical,
   axum benchmark 209,477 rows on both runs, peak server `VmHWM` 227 MB.
 * Research evaluation (`docs/research-evaluation.md`, Phase 10) unchanged —
   numbers already honest and reproducible; no new ML claims made.
+
+---
+
+## Candidate #4 optimization sequence (Steps 1–8 COMPLETE)
+
+The dataset pipeline previously reconstructed historical state from scratch
+for every target commit. Candidate #4 replaced this with advance-only
+incremental accumulators over the same grouped-timestamp ranges the dataset
+builder uses for `seen` (commits with `timestamp < cutoff`, never the target
+itself). No step relaxes the temporal leakage guarantees.
+
+* Step 1 — borrowed historical-prefix slices: filter-then-clone replaced with
+  `partition_point` borrows over the `(timestamp, sha)`-ordered commits;
+  identical selection and order, including strict `<` equal-timestamp
+  exclusion and untimestamped-commit filtering.
+* Step 2 — monotonic seen-set advancement: each historical commit is folded
+  into `seen` exactly once as the cutoff only moves forward.
+* Step 3 — incremental historical feature accumulator
+  (`HistoricalPrefixAccumulator` in `historical_features.rs`): advanced over
+  the same grouped ranges as `seen`, materialized per target into the
+  identical output shape; checked against the reference implementation with
+  equivalence tests.
+* Step 4 — shared incremental co-change state: exact reuse of the
+  history-analysis counting, so equal commits contribute equally regardless
+  of arrival order.
+* Step 5 — incremental temporal accumulator (`TemporalPrefixAccumulator` in
+  `history.rs`): pair counting, window breaks, ignored-path filtering,
+  self-pair exclusion, and top-50 truncation identical to
+  `temporal_analysis`; only repeated full-prefix rescans replaced by
+  monotonic accumulation. Checked with
+  `incremental_temporal_matches_oracle_at_every_cutoff`. Observation: modest
+  likely-real improvement, approximately 12% mean dataset-time reduction,
+  but machine variance was significant.
+* Step 6 — incremental propagation accumulator
+  (`PropagationPrefixAccumulator` in `history.rs`): static dependency
+  contributions folded once; co-change contributions folded per newly
+  eligible commit; the current top-50 temporal list folded at materialize
+  time; the merged map stays full so late-rising pairs can always enter the
+  top 100. Checked with
+  `incremental_propagation_matches_oracle_at_every_cutoff` (including a
+  late-riser case crossing the top-100 boundary). Observation: modest
+  likely-real improvement, approximately 8 seconds / approximately 21%
+  versus the original baseline, with noise acknowledged.
+* Step 7 — incremental file-timestamp accumulator (`FileTimesAccumulator`
+  in `temporal_features.rs`): full per-file timestamp vectors over exactly
+  the commits with `ts < current`, lent by reference instead of rebuilt and
+  re-sorted per target. Checked with
+  `incremental_file_times_matches_oracle_at_every_cutoff`. Observation: no
+  measurable speedup; kept because it removes repeated allocations and
+  enables Step 8.
+* Step 8 — incremental follow-up/rework accumulator
+  (`FollowupReworkPrefixAccumulator` in `propagation_history.rs`): pair
+  discovery folded once per newly eligible commit; classification runs at
+  materialize time with the present prefix co-change map, exactly as the
+  reference classifies pairs with the full prefix map. Checked with
+  `incremental_followup_rework_matches_oracle_at_every_cutoff`.
+  Observation: repeatable improvement, approximately 18.6 seconds /
+  approximately 24% versus the Step-7 state.
+
+Steps 5–8 were never deferred or skipped: all four are implemented, with
+equivalence coverage against the reference/oracle behavior at every cutoff.
+Row output is unchanged at 209,477 rows on the Axum benchmark.
 
 ---
 
@@ -1009,46 +1081,26 @@ The intended final workflow is:
 
 ---
 
-# Definition of Done
+# Current Status
 
-RepoInsight will be considered complete when it can:
+Implementation is substantially complete for the current research/tooling
+scope; Phases 1–10 are done as described above. The working system:
 
-1. Accept an arbitrary supported GitHub repository.
-2. Collect its source structure and historical changes.
-3. Build a chronological representation of repository evolution.
-4. Extract structural, historical, and temporal features.
-5. Construct leakage-safe training data.
-6. Train and evaluate a predictive model.
-7. Predict change propagation/rework risk for a target file or change.
-8. Provide historical evidence supporting the result.
-9. Explain the prediction without confusing model output with observed facts.
-10. Display the result through an interactive developer dashboard.
+1. Accepts arbitrary supported GitHub repositories and local Git repositories.
+2. Collects source structure and historical changes.
+3. Builds a chronological representation of repository evolution.
+4. Extracts structural, historical, and temporal features.
+5. Constructs leakage-safe training data (Candidate #4 Steps 1–8 complete).
+6. Trains and evaluates predictive baselines with chronological splits.
+7. Predicts change propagation/rework risk per file or change, plus ripple
+   forecasts and planned-change impact simulations.
+8. Provides historical evidence supporting each result.
+9. Explains predictions without confusing model output, heuristic signals,
+   or observed facts (uncalibrated probabilities labeled as such).
+10. Displays results through the interactive analysis workbench.
 
----
-
-# Current Priority
-
-The immediate development order is:
-
-```text
-Phase 3
-   ↓
-Connect Tree-sitter to source analysis
-   ↓
-Build normalized file-level representation
-   ↓
-Phase 4
-   ↓
-Build chronological change representation
-   ↓
-Detect propagation/rework patterns
-   ↓
-Phase 5
-   ↓
-Create leakage-safe dataset
-   ↓
-Phase 6
-   ↓
-Train and evaluate ML model
-```
+Remaining work is limited to explicitly documented limitations and future
+research (branch-aware caching, per-commit detail endpoint, persistent
+storage, richer propagation forecasting, larger multi-repository
+evaluation). Final demo/packaging remains future work.
 

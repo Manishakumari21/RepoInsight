@@ -125,7 +125,7 @@ export function OverviewPage({
     <div className="overview-page">
       <div className="page-head">
         <p className="eyebrow">Repository</p>
-        <h1>{sourceLabel}</h1>
+        <h1 className="repo-title" title={sourceLabel}>{sourceLabel}</h1>
         <p>Repository intelligence and evolution analysis.</p>
       </div>
 
