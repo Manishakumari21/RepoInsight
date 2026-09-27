@@ -110,6 +110,38 @@ curl -X POST localhost:3000/api/local/analysis \
   -d '{"path":"/home/user/projects/my-repo"}'
 ```
 
+## Deployment
+
+Reproducible Docker setup (two containers; no Python service — ML inference
+is embedded in the backend binary, the Python package is training/research
+tooling only):
+
+```bash
+cp .env.example .env   # set GITHUB_TOKEN
+docker compose build
+docker compose up -d
+```
+
+- Frontend: http://localhost:8080 (nginx proxies `/api/` and `/health` to
+  the backend, so the browser makes same-origin requests).
+- Backend health: http://localhost:8080/health (proxied) or container-internal
+  `backend:3000/health`.
+- Stop with `docker compose down`.
+
+Notes and limits:
+
+- Set `GITHUB_TOKEN` in `.env`; without it GitHub-mode analysis is limited
+  to 60 API calls/hour.
+- `/api/local/*` reads server-side filesystem paths. It is enabled by
+  default for private/self-hosted use; set `LOCAL_API_ENABLED=0` in `.env`
+  to disable those routes (403) on a public deployment.
+- Cold analysis of large repositories can take 60–120+ seconds; the nginx
+  proxy timeouts (300 s) and backend `spawn_blocking` isolation account for
+  this. This deployment targets a single host (in-memory cache is per
+  container), not serverless platforms with short request timeouts.
+- Containers run as non-root with read-only filesystems; no volumes are
+  mounted by default (GitHub mode needs none).
+
 ## Limitations
 
 * Cold analysis of large repositories takes on the order of a minute or more; exact cost depends on history size and machine load.

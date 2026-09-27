@@ -677,6 +677,7 @@ Turn the research prototype into a reliable working system.
 * [x] Rate-limit handling — 429 mapping + client-side backoff; 502 hint in frontend when backend unreachable
 * [x] Request timeout handling — 60s reqwest timeout + transient retries
 * [x] Bounded resource usage — analysis cache cap, 1MB blob limit, 8-way bounded concurrency, 300-entry timeline cap
+* [x] Docker deployment — `Dockerfile.backend` (release binary on slim Debian + git + CA certs, non-root, read-only), `Dockerfile.frontend` (locked `npm ci` build served by unprivileged nginx with `/api` proxy), `docker-compose.yml` (health-gated startup, no Python service — ML inference is embedded via `include_str!`), `.env.example` (`GITHUB_TOKEN`, `LOCAL_API_ENABLED`); deployment-only `main.rs` config: `HOST`/`PORT` env bind (defaults preserve local dev) and a default-on `LOCAL_API_ENABLED` guard on `/api/local/*`. No research/ML logic touched. Docker-engine verification pending (no Docker on the authoring machine).
 
 ---
 

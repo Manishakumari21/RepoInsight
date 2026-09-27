@@ -1,0 +1,71 @@
+# RepoInsight production deployment.
+#
+#   docker compose build
+#   docker compose up -d
+#
+# Frontend: http://localhost:8080 (proxies /api/ and /health to backend).
+# No Python service: ML inference is embedded in the backend binary
+# (weights compiled in); the Python package is training/research only.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: repoinsight-backend:latest
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      LOCAL_API_ENABLED: ${LOCAL_API_ENABLED:-1}
+    expose:
+      - "3000"
+    # No ports published: the browser reaches the backend through the
+    # frontend's /api proxy. Publish "3000:3000" instead if direct API
+    # access is wanted.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    # No volumes mounted by default: GitHub-mode analysis needs no local
+    # filesystem. To analyze server-side checkouts, mount them read-only,
+    # e.g. uncomment:
+    # volumes:
+    #   - /srv/repos:/repos:ro
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      # Same-origin /api proxy is the default. Only set VITE_API_BASE if the
+      # frontend is served from a different origin than the API, e.g.:
+      # args:
+      #   VITE_API_BASE: https://api.example.com
+    image: repoinsight-frontend:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true

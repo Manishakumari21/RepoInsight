@@ -10,6 +10,23 @@ use crate::github::commits::{ChangedFile, Commit, CommitAuthor, CommitStats, Fil
 use crate::github::files::RepositoryFile;
 use crate::timing::{AnalysisTimings, elapsed_ms};
 
+fn resolve_local_path(raw: &str) -> PathBuf {
+    let trimmed = raw.trim();
+
+    if let Ok(host_root) = std::env::var("LOCAL_REPO_HOST_ROOT") {
+        if let Ok(container_root) = std::env::var("LOCAL_REPO_CONTAINER_ROOT") {
+            let host = Path::new(&host_root);
+            let candidate = Path::new(trimmed);
+
+            if let Ok(relative) = candidate.strip_prefix(host) {
+                return Path::new(&container_root).join(relative);
+            }
+        }
+    }
+
+    PathBuf::from(trimmed)
+}
+
 pub const MAX_LOCAL_COMMITS: usize = 1000;
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -42,7 +59,8 @@ pub fn validate_local_path(raw: &str) -> Result<PathBuf, LocalRepoError> {
     if trimmed.is_empty() {
         return Err(LocalRepoError::NotFound);
     }
-    let candidate = PathBuf::from(trimmed);
+    let candidate = resolve_local_path(trimmed);
+
     let metadata = std::fs::symlink_metadata(&candidate).map_err(|error| match error.kind() {
         std::io::ErrorKind::NotFound => LocalRepoError::NotFound,
         std::io::ErrorKind::PermissionDenied => LocalRepoError::Permission,

@@ -85,6 +85,35 @@ fn api_error(error: anyhow::Error) -> ApiError {
     )
 }
 
+// Deployment configuration. Defaults preserve local-development behavior;
+// the Docker setup overrides HOST (and optionally PORT) via environment.
+fn server_addr() -> String {
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_owned());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_owned());
+    format!("{host}:{port}")
+}
+
+// Deployment safeguard for the /api/local/* routes, which read arbitrary
+// filesystem paths. Enabled by default (current behavior); set
+// LOCAL_API_ENABLED=0/false/no to disable them on public deployments.
+fn local_api_enabled() -> bool {
+    std::env::var("LOCAL_API_ENABLED")
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized != "0" && normalized != "false" && normalized != "no"
+        })
+        .unwrap_or(true)
+}
+
+fn local_api_disabled() -> ApiError {
+    (
+        StatusCode::FORBIDDEN,
+        Json(ErrorBody {
+            error: "Local repository analysis is disabled on this deployment.".to_owned(),
+        }),
+    )
+}
+
 #[derive(Clone)]
 struct AppState {
     github: GithubClient,
@@ -144,9 +173,10 @@ async fn main() -> Result<()> {
         .layer(cors)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    let addr = server_addr();
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    println!("RepoInsight backend running on http://127.0.0.1:3000");
+    println!("RepoInsight backend running on http://{addr}");
 
     axum::serve(listener, app).await?;
 
@@ -372,6 +402,9 @@ async fn post_local_ripple(
     State(state): State<AppState>,
     Json(request): Json<LocalRippleRequest>,
 ) -> Result<Response, ApiError> {
+    if !local_api_enabled() {
+        return Err(local_api_disabled());
+    }
     let source = request
         .source
         .or_else(|| request.files.and_then(|files| files.into_iter().next()))
@@ -498,6 +531,9 @@ async fn post_local_impact(
     State(state): State<AppState>,
     Json(request): Json<LocalImpactRequest>,
 ) -> Result<Response, ApiError> {
+    if !local_api_enabled() {
+        return Err(local_api_disabled());
+    }
     let description = request
         .change_description
         .filter(|description| !description.trim().is_empty())
@@ -558,6 +594,9 @@ async fn post_local_analysis(
     State(state): State<AppState>,
     Json(request): Json<LocalRepoRequest>,
 ) -> Result<Response, ApiError> {
+    if !local_api_enabled() {
+        return Err(local_api_disabled());
+    }
     let canonical = crate::local::validate_local_path(&request.path)
         .map_err(|error| api_error(anyhow::anyhow!(error.to_string())))?;
     let cache_key = format!("local:{}", canonical.to_string_lossy());
@@ -588,6 +627,9 @@ async fn post_local_analysis(
 }
 
 async fn post_local_dataset(Json(request): Json<LocalRepoRequest>) -> Result<Response, ApiError> {
+    if !local_api_enabled() {
+        return Err(local_api_disabled());
+    }
     let rows = analysis::analyzer::build_ml_dataset_local(&request.path)
         .await
         .map_err(api_error)?;
@@ -612,6 +654,9 @@ async fn post_local_predictions(
     State(state): State<AppState>,
     Json(request): Json<LocalRepoRequest>,
 ) -> Result<Response, ApiError> {
+    if !local_api_enabled() {
+        return Err(local_api_disabled());
+    }
     let canonical = crate::local::validate_local_path(&request.path)
         .map_err(|error| api_error(anyhow::anyhow!(error.to_string())))?;
     let cache_key = format!("pred:local:{}", canonical.to_string_lossy());
@@ -652,6 +697,9 @@ struct LocalTimingsRepo {
 async fn post_local_timings(
     Json(request): Json<LocalRepoRequest>,
 ) -> Result<Json<LocalTimingsResponse>, ApiError> {
+    if !local_api_enabled() {
+        return Err(local_api_disabled());
+    }
     match analysis::analyzer::analyze_local_timed(&request.path).await {
         Ok(timed) => Ok(Json(LocalTimingsResponse {
             repository: LocalTimingsRepo {
