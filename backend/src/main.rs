@@ -205,7 +205,10 @@ async fn main() -> Result<()> {
 
     println!("RepoInsight backend running on http://{addr}");
 
-    axum::serve(listener, app).await?;
+    if let Err(error) = axum::serve(listener, app).await {
+        eprintln!("Server error: {error:#}");
+        return Err(error.into());
+    }
     eprintln!("Server stopped");
 
     Ok(())
