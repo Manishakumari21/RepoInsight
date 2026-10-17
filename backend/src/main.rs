@@ -7,7 +7,7 @@ use axum::{
     body::Body,
     debug_handler,
     extract::{Path, Query, State},
-    http::{StatusCode, header},
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -122,13 +122,38 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    eprintln!("RepoInsight backend starting");
+    eprintln!(
+        "HOST={}",
+        std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_owned())
+    );
+    eprintln!(
+        "PORT={}",
+        std::env::var("PORT").unwrap_or_else(|_| "3000".to_owned())
+    );
+    eprintln!(
+        "LOCAL_API_ENABLED={}",
+        std::env::var("LOCAL_API_ENABLED").unwrap_or_else(|_| "<unset>".to_owned())
+    );
+
     let state = AppState {
-        github: GithubClient::new()?,
+        github: match GithubClient::new() {
+            Ok(client) => {
+                eprintln!("GitHub client initialized");
+                client
+            }
+            Err(error) => {
+                eprintln!("Failed to initialize GitHub client: {error:#}");
+                return Err(error.into());
+            }
+        },
         cache: Arc::new(AnalysisCache::new()),
     };
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(HeaderValue::from_static(
+            "https://repo-insight-smoky.vercel.app",
+        ))
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -174,11 +199,14 @@ async fn main() -> Result<()> {
         .with_state(state);
 
     let addr = server_addr();
+    eprintln!("Binding listener on {addr}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    eprintln!("Listener bound on {addr}");
 
     println!("RepoInsight backend running on http://{addr}");
 
     axum::serve(listener, app).await?;
+    eprintln!("Server stopped");
 
     Ok(())
 }
