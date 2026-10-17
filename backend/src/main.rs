@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
+    auth::{OAuthTransactionStore, authorization_url},
     cache::AnalysisCache,
     github::{
         client::{GithubClient, GithubError},
@@ -25,7 +26,9 @@ use crate::{
 };
 
 mod analysis;
+mod auth;
 mod cache;
+mod config;
 mod dataset;
 mod github;
 mod local;
@@ -114,10 +117,17 @@ fn local_api_disabled() -> ApiError {
     )
 }
 
+#[derive(serde::Deserialize, Default)]
+struct AuthCallbackQuery {
+    code: Vec<String>,
+    state: Vec<String>,
+}
+
 #[derive(Clone)]
 struct AppState {
     github: GithubClient,
     cache: Arc<AnalysisCache>,
+    oauth_transactions: Arc<OAuthTransactionStore>,
 }
 
 #[tokio::main]
@@ -136,6 +146,8 @@ async fn main() -> Result<()> {
         std::env::var("LOCAL_API_ENABLED").unwrap_or_else(|_| "<unset>".to_owned())
     );
 
+    let _config = config::AppConfig::from_env().map_err(|error| anyhow::anyhow!("{error}"))?;
+
     let state = AppState {
         github: match GithubClient::new() {
             Ok(client) => {
@@ -148,6 +160,9 @@ async fn main() -> Result<()> {
             }
         },
         cache: Arc::new(AnalysisCache::new()),
+        oauth_transactions: Arc::new(OAuthTransactionStore::new(std::time::Duration::from_secs(
+            600,
+        ))),
     };
 
     let cors = CorsLayer::new()
@@ -158,6 +173,8 @@ async fn main() -> Result<()> {
         .allow_headers(Any);
 
     let app = Router::new()
+        .route("/auth/github", get(auth_github))
+        .route("/auth/github/callback", get(auth_github_callback))
         .route("/health", get(health))
         .route("/api/repositories/{owner}/{repo}", get(get_repository))
         .route(
@@ -216,6 +233,52 @@ async fn main() -> Result<()> {
 
 async fn health() -> &'static str {
     "RepoInsight backend is healthy"
+}
+
+#[debug_handler]
+async fn auth_github(State(state): State<AppState>) -> Result<axum::response::Redirect, ApiError> {
+    let config = crate::config::AppConfig::from_env().map_err(|error| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    let url = authorization_url(&config, &state.oauth_transactions).map_err(|error| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    Ok(axum::response::Redirect::temporary(&url))
+}
+
+#[debug_handler]
+async fn auth_github_callback(
+    State(state): State<AppState>,
+    Query(query): Query<AuthCallbackQuery>,
+) -> Result<&'static str, ApiError> {
+    let params =
+        crate::auth::validate_query_values(&query.code, &query.state).map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorBody {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+    crate::auth::consume_transaction(&state.oauth_transactions, &params).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    Ok("github authorization callback validated")
 }
 
 #[debug_handler]
