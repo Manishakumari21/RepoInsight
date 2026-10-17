@@ -10,8 +10,9 @@
   width: var(--sidebar-w); flex-shrink: 0;
   position: sticky; top: 0; height: 100svh;
   display: flex; flex-direction: column;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-muted);
+  background: rgba(8, 23, 44, 0.56);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border-right: 1px solid rgba(115, 185, 255, 0.28);
   padding: 18px 14px 14px;
 }
 .sidebar-brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px 16px; }
@@ -68,8 +69,9 @@
   position: sticky; top: 0; z-index: var(--z-topbar);
   display: flex; align-items: center; gap: 12px;
   min-height: 56px; padding: 8px 20px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-muted);
+  background: rgba(8, 23, 44, 0.50);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid rgba(115, 185, 255, 0.28);
 }
 .dash-brand { display: none; }
 .dash-repo { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -151,7 +153,8 @@ a.repo-chip:hover { border-color: var(--cyan); color: var(--cyan); }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; margin-top: 20px; }
 .insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; margin-top: 20px; }
 .stat-card {
-  position: relative; background: var(--surface);
+  position: relative; background: rgba(15, 40, 75, 0.45);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-muted); border-radius: var(--radius-md);
   padding: 14px 16px; transition: border-color var(--dur-fast);
   overflow: hidden;
@@ -167,7 +170,8 @@ a.repo-chip:hover { border-color: var(--cyan); color: var(--cyan); }
 .insights .stat-value { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .panel {
-  background: var(--surface);
+  background: rgba(15, 40, 75, 0.45);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-muted); border-radius: var(--radius-md);
   padding: 18px 20px; min-width: 0; box-shadow: none;
   transition: border-color var(--dur-fast);
@@ -547,7 +551,8 @@ a.repo-chip:hover { border-color: var(--cyan); color: var(--cyan); }
 .summary-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 @media (max-width: 900px) { .summary-row { grid-template-columns: repeat(2, 1fr); } }
 .summary-card {
-  background: var(--surface);
+  background: rgba(15, 40, 75, 0.45);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-muted); border-radius: var(--radius-md);
   padding: 16px 18px; transition: border-color var(--dur-fast);
 }
@@ -593,7 +598,8 @@ a.repo-chip:hover { border-color: var(--cyan); color: var(--cyan); }
 
 .attention-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
 .attention-card {
-  background: var(--surface);
+  background: rgba(15, 40, 75, 0.45);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-muted); border-radius: var(--radius-md);
   padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
   transition: border-color var(--dur-fast);
