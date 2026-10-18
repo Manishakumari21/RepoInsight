@@ -21,7 +21,7 @@ RUN mkdir -p src && echo 'fn main() {}' > src/main.rs && cargo build --release
 
 COPY backend/src ./src
 COPY tests/backend/evaluation/rework_labels.csv /tests/backend/evaluation/rework_labels.csv
-RUN cargo build --release
+RUN touch src/main.rs && cargo build --release
 
 FROM debian:bookworm-slim AS runtime
 
