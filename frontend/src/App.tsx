@@ -15,6 +15,7 @@ import type { PredictionsResponse, RepositoryAnalysis } from './types'
 import type { ActiveSource } from './lib/repoSource'
 import { Landing } from './components/Landing'
 import { Dashboard } from './components/Dashboard'
+import { AuthStatus } from './components/AuthStatus'
 import { DashboardSkeleton } from './components/primitives'
 import { ErrorBanner } from './components/Status'
 import './App.css'
@@ -214,6 +215,9 @@ function App() {
       <a className="skip-link" href="#main-content">
         Skip to dashboard content
       </a>
+      <div style={{ padding: '8px 22px 0' }}>
+        <AuthStatus />
+      </div>
       {analysis && source ? (
         <>
           {error && (

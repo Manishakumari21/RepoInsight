@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
+    auth::{OAuthTransactionStore, authorization_url},
     cache::AnalysisCache,
     github::{
         client::{GithubClient, GithubError},
@@ -25,11 +26,17 @@ use crate::{
 };
 
 mod analysis;
+mod auth;
 mod cache;
+mod config;
+mod crypto;
+mod csrf;
 mod dataset;
+mod db;
 mod github;
 mod local;
 mod prediction;
+mod session;
 mod timing;
 
 #[derive(Serialize)]
@@ -114,10 +121,18 @@ fn local_api_disabled() -> ApiError {
     )
 }
 
+#[derive(serde::Deserialize, Default)]
+struct AuthCallbackQuery {
+    code: Vec<String>,
+    state: Vec<String>,
+}
+
 #[derive(Clone)]
 struct AppState {
     github: GithubClient,
     cache: Arc<AnalysisCache>,
+    oauth_transactions: Arc<OAuthTransactionStore>,
+    db_pool: Option<sqlx::PgPool>,
 }
 
 #[tokio::main]
@@ -136,6 +151,20 @@ async fn main() -> Result<()> {
         std::env::var("LOCAL_API_ENABLED").unwrap_or_else(|_| "<unset>".to_owned())
     );
 
+    let config = config::AppConfig::from_env().map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    let db_pool = if config.auth_persistence_enabled {
+        match db::init_pool(std::env::var("DATABASE_URL").ok().as_deref()).await {
+            Ok(pool) => pool,
+            Err(error) => {
+                eprintln!("Database initialization failed: {error}");
+                return Err(anyhow::anyhow!("database initialization failed"));
+            }
+        }
+    } else {
+        None
+    };
+
     let state = AppState {
         github: match GithubClient::new() {
             Ok(client) => {
@@ -148,16 +177,42 @@ async fn main() -> Result<()> {
             }
         },
         cache: Arc::new(AnalysisCache::new()),
+        oauth_transactions: Arc::new(OAuthTransactionStore::new(std::time::Duration::from_secs(
+            600,
+        ))),
+        db_pool,
     };
 
-    let cors = CorsLayer::new()
-        .allow_origin(HeaderValue::from_static(
-            "https://repo-insight-smoky.vercel.app",
-        ))
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let allowed_origins = if config.allowed_origins.is_empty() {
+        vec!["https://repo-insight-smoky.vercel.app".to_owned()]
+    } else {
+        config.allowed_origins.clone()
+    };
+
+    let mut cors = CorsLayer::new()
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-csrf-token"),
+        ])
+        .allow_credentials(true);
+
+    for origin in allowed_origins {
+        if let Ok(value) = HeaderValue::from_str(&origin) {
+            cors = cors.allow_origin(value);
+        }
+    }
 
     let app = Router::new()
+        .route("/auth/github", get(auth_github))
+        .route("/auth/github/callback", get(auth_github_callback))
+        .route("/auth/me", get(auth_me))
+        .route("/auth/logout", post(auth_logout))
         .route("/health", get(health))
         .route("/api/repositories/{owner}/{repo}", get(get_repository))
         .route(
@@ -216,6 +271,303 @@ async fn main() -> Result<()> {
 
 async fn health() -> &'static str {
     "RepoInsight backend is healthy"
+}
+
+#[debug_handler]
+async fn auth_github(State(state): State<AppState>) -> Result<axum::response::Redirect, ApiError> {
+    let config = crate::config::AppConfig::from_env().map_err(|error| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    let url = authorization_url(&config, &state.oauth_transactions).map_err(|error| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    Ok(axum::response::Redirect::temporary(&url))
+}
+
+#[debug_handler]
+async fn auth_github_callback(
+    State(state): State<AppState>,
+    Query(query): Query<AuthCallbackQuery>,
+) -> Result<Response, ApiError> {
+    let params =
+        crate::auth::validate_query_values(&query.code, &query.state).map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorBody {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+    let transaction = crate::auth::consume_transaction(&state.oauth_transactions, &params)
+        .map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorBody {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+    let config = crate::config::AppConfig::from_env().map_err(|error| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    let token = crate::auth::exchange_code(&config, &params.code, &transaction.pkce.verifier)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorBody {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+
+    if !config.auth_persistence_enabled {
+        return Ok(axum::response::Redirect::temporary("/").into_response());
+    }
+
+    let Some(pool) = &state.db_pool else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: "persistence is not available".to_owned(),
+            }),
+        ));
+    };
+
+    let key = std::env::var("TOKEN_ENCRYPTION_KEY")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorBody {
+                    error: "token encryption is not configured".to_owned(),
+                }),
+            )
+        })?;
+    let key = key.as_bytes();
+    if key.len() != 32 {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: "token encryption key is invalid".to_owned(),
+            }),
+        ));
+    }
+
+    // Fetch the authenticated GitHub user's stable ID.
+    let client = reqwest::Client::builder()
+        .user_agent("RepoInsight")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|_| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorBody {
+                    error: "github request failed".to_owned(),
+                }),
+            )
+        })?;
+    let user_response = client
+        .get("https://api.github.com/user")
+        .bearer_auth(&token.access_token)
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorBody {
+                    error: "github request failed".to_owned(),
+                }),
+            )
+        })?;
+    if !user_response.status().is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorBody {
+                error: "github user lookup failed".to_owned(),
+            }),
+        ));
+    }
+    #[derive(serde::Deserialize)]
+    struct GitHubUser {
+        id: i64,
+    }
+    let user: GitHubUser = user_response.json().await.map_err(|_| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorBody {
+                error: "github user lookup failed".to_owned(),
+            }),
+        )
+    })?;
+    let github_user_id = user.id.to_string();
+
+    let raw_session_id = crate::session::persist_authenticated_session(
+        pool,
+        &github_user_id,
+        &token.access_token,
+        token.refresh_token.as_deref(),
+        token.expires_in,
+        token.refresh_token_expires_in,
+        key,
+    )
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    let session_hash = crate::session::hash_session_id(&raw_session_id);
+    let csrf_secret = std::env::var("CSRF_SECRET").unwrap_or_default();
+    let csrf_token = crate::csrf::issue_token(&session_hash, &csrf_secret);
+
+    let session_cookie = format!(
+        "__Host-session={}; HttpOnly; Path=/; Secure; SameSite=None; Max-Age=28800",
+        raw_session_id
+    );
+    let csrf_cookie = format!(
+        "csrf_token={}; Path=/; Secure; SameSite=None; Max-Age=28800",
+        csrf_token.as_str()
+    );
+
+    let mut response = axum::response::Redirect::temporary("/").into_response();
+    if let Ok(value) = axum::http::HeaderValue::from_str(&session_cookie) {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, value);
+    }
+    if let Ok(value) = axum::http::HeaderValue::from_str(&csrf_cookie) {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, value);
+    }
+    Ok(response)
+}
+
+#[derive(serde::Serialize)]
+struct AuthMeResponse {
+    authenticated: bool,
+    github_user_id: Option<String>,
+}
+
+#[debug_handler]
+async fn auth_me(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<AuthMeResponse>, ApiError> {
+    let Some(pool) = &state.db_pool else {
+        return Ok(Json(AuthMeResponse {
+            authenticated: false,
+            github_user_id: None,
+        }));
+    };
+    let cookie_header = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|value| value.to_str().ok());
+    let now = chrono::Utc::now();
+    match crate::session::authenticated_session(pool, cookie_header, now).await {
+        Ok(session) => Ok(Json(AuthMeResponse {
+            authenticated: true,
+            github_user_id: Some(session.github_user_id),
+        })),
+        Err(_) => Ok(Json(AuthMeResponse {
+            authenticated: false,
+            github_user_id: None,
+        })),
+    }
+}
+
+#[debug_handler]
+async fn auth_logout(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<impl axum::response::IntoResponse, ApiError> {
+    let origin = headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|value| value.to_str().ok());
+    let allowed_origins = crate::config::AppConfig::from_env()
+        .map(|config| {
+            if config.allowed_origins.is_empty() {
+                vec!["https://repo-insight-smoky.vercel.app".to_owned()]
+            } else {
+                config.allowed_origins
+            }
+        })
+        .unwrap_or_else(|_| vec!["https://repo-insight-smoky.vercel.app".to_owned()]);
+    if !crate::csrf::origin_allowed(origin, &allowed_origins) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorBody {
+                error: "origin not allowed".to_owned(),
+            }),
+        ));
+    }
+
+    if let Some(pool) = &state.db_pool {
+        if let Some(raw_id) = headers
+            .get(axum::http::header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(crate::session::extract_session_cookie)
+        {
+            let now = chrono::Utc::now();
+            if crate::session::lookup_session(pool, &raw_id, now)
+                .await
+                .is_ok()
+            {
+                let csrf_header = headers
+                    .get("x-csrf-token")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("");
+                let secret = std::env::var("CSRF_SECRET").unwrap_or_default();
+                let session_hash = crate::session::hash_session_id(&raw_id);
+                if !crate::csrf::validate_token(&session_hash, &secret, csrf_header) {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(ErrorBody {
+                            error: "invalid csrf token".to_owned(),
+                        }),
+                    ));
+                }
+                let _ = crate::session::revoke_session(pool, &raw_id).await;
+            }
+        }
+    }
+
+    let mut response = axum::response::Redirect::temporary("/").into_response();
+    let session_cookie = "__Host-session=; HttpOnly; Path=/; Secure; SameSite=None; Max-Age=0";
+    let csrf_cookie = "csrf_token=; Path=/; Secure; SameSite=None; Max-Age=0";
+    if let Ok(value) = axum::http::HeaderValue::from_str(session_cookie) {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, value);
+    }
+    if let Ok(value) = axum::http::HeaderValue::from_str(csrf_cookie) {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, value);
+    }
+    Ok(response)
 }
 
 #[debug_handler]
