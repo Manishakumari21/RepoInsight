@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchAuthStatus, logout } from '../api'
+import './AuthStatus.css'
 
 export function AuthStatus() {
   const [status, setStatus] = useState<{ authenticated: boolean; github_user_id: string | null } | null>(null)
@@ -26,15 +27,21 @@ export function AuthStatus() {
     }
   }
 
-  if (loading) return <span>Loading auth…</span>
-  if (error) return <span>{error}</span>
+  if (loading) return <span className="auth-status">Loading GitHub connection…</span>
+  if (error) return <span className="auth-status auth-error">{error}</span>
   if (status?.authenticated) {
     return (
-      <div>
-        <span>GitHub: {status.github_user_id}</span>
-        <button onClick={handleLogout}>Disconnect GitHub</button>
+      <div className="auth-status">
+        <span className="auth-user">GitHub connected: {status.github_user_id}</span>
+        <button type="button" className="auth-button" onClick={handleLogout}>
+          Disconnect GitHub
+        </button>
       </div>
     )
   }
-  return <button onClick={handleLogin}>Connect GitHub</button>
+  return (
+    <button type="button" className="auth-button auth-button-primary" onClick={handleLogin}>
+      Connect GitHub
+    </button>
+  )
 }

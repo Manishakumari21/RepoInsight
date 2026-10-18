@@ -13,7 +13,7 @@ describe('AuthStatus', () => {
       json: async () => ({ authenticated: false, github_user_id: null }),
     }) as any
     render(<AuthStatus />)
-    expect(screen.getByText(/Loading auth/i)).toBeInTheDocument()
+    expect(screen.getByText(/Loading GitHub connection/i)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: /Connect GitHub/i })).toBeInTheDocument())
   })
 
@@ -23,7 +23,7 @@ describe('AuthStatus', () => {
       json: async () => ({ authenticated: true, github_user_id: '123' }),
     }) as any
     render(<AuthStatus />)
-    await waitFor(() => expect(screen.getByText(/GitHub: 123/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/GitHub connected: 123/i)).toBeInTheDocument())
   })
 
   it('shows error on status failure', async () => {

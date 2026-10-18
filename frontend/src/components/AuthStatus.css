@@ -1,0 +1,6 @@
+.auth-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); }
+.auth-user { font-family: var(--mono); font-size: 12px; }
+.auth-button { border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 650; padding: 8px 14px; border-radius: 9px; cursor: pointer; min-height: 38px; transition: all var(--dur-fast) var(--ease-out); }
+.auth-button:hover { border-color: var(--cyan); color: var(--text); }
+.auth-button-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.auth-error { color: var(--danger); }
