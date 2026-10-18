@@ -20,6 +20,7 @@ COPY backend/Cargo.toml backend/Cargo.lock ./
 RUN mkdir -p src && echo 'fn main() {}' > src/main.rs && cargo build --release
 
 COPY backend/src ./src
+COPY backend/migrations ./migrations
 COPY tests/backend/evaluation/rework_labels.csv /tests/backend/evaluation/rework_labels.csv
 RUN touch src/main.rs && cargo build --release
 
