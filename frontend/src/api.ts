@@ -13,6 +13,11 @@ import {
   repositoryAnalysisQueryKey,
 } from './lib/queryClient'
 
+export interface AuthStatus {
+  authenticated: boolean
+  github_user_id: string | null
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -131,6 +136,37 @@ export async function fetchLocalAnalysis(repoPath: string): Promise<RepositoryAn
     message ? message : `Local analysis request failed: HTTP ${response.status}`,
     response.status,
   )
+}
+
+export async function fetchAuthStatus(): Promise<AuthStatus> {
+  const url = `${VITE_API_BASE}/auth/me`
+  const response = await fetch(url, { credentials: 'include' })
+  if (!response.ok) {
+    return { authenticated: false, github_user_id: null }
+  }
+  return (await response.json()) as AuthStatus
+}
+
+export function readCookie(name: string): string | null {
+  const match = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+  if (!match) return null
+  return decodeURIComponent(match.slice(name.length + 1))
+}
+
+export async function logout(): Promise<void> {
+  const csrfToken = readCookie('csrf_token')
+  const url = `${VITE_API_BASE}/auth/logout`
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+  })
+  if (!response.ok) {
+    throw new ApiError('Logout failed', response.status)
+  }
 }
 
 export function describeLocalPathError(raw: string): string | null {

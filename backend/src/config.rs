@@ -16,6 +16,10 @@ pub struct AppConfig {
     pub github_app_client_id_present: bool,
     pub github_app_client_secret_present: bool,
     pub github_app_callback_url: Option<String>,
+    pub database_url_present: bool,
+    pub token_encryption_key_present: bool,
+    pub csrf_secret_present: bool,
+    pub auth_persistence_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +145,50 @@ impl AppConfig {
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false);
 
+        let database_url_present = values
+            .get("DATABASE_URL")
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+
+        let token_encryption_key_present = values
+            .get("TOKEN_ENCRYPTION_KEY")
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+
+        let csrf_secret_present = values
+            .get("CSRF_SECRET")
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+
+        let auth_persistence_enabled = values
+            .get("AUTH_PERSISTENCE_ENABLED")
+            .map(|value| {
+                let normalized = value.trim().to_ascii_lowercase();
+                normalized == "1" || normalized == "true" || normalized == "yes"
+            })
+            .unwrap_or(false);
+
+        if auth_persistence_enabled {
+            if !database_url_present {
+                return Err(ConfigError::new(
+                    "DATABASE_URL",
+                    "required when AUTH_PERSISTENCE_ENABLED is enabled",
+                ));
+            }
+            if !token_encryption_key_present {
+                return Err(ConfigError::new(
+                    "TOKEN_ENCRYPTION_KEY",
+                    "required when AUTH_PERSISTENCE_ENABLED is enabled",
+                ));
+            }
+            if !csrf_secret_present {
+                return Err(ConfigError::new(
+                    "CSRF_SECRET",
+                    "required when AUTH_PERSISTENCE_ENABLED is enabled",
+                ));
+            }
+        }
+
         let github_app_callback_url = match values.get("GITHUB_APP_CALLBACK_URL") {
             None => None,
             Some(value) if value.trim().is_empty() => None,
@@ -161,6 +209,10 @@ impl AppConfig {
             github_app_client_id_present,
             github_app_client_secret_present,
             github_app_callback_url,
+            database_url_present,
+            token_encryption_key_present,
+            csrf_secret_present,
+            auth_persistence_enabled,
         })
     }
 
@@ -175,6 +227,10 @@ impl AppConfig {
             "GITHUB_APP_CLIENT_ID",
             "GITHUB_APP_CLIENT_SECRET",
             "GITHUB_APP_CALLBACK_URL",
+            "DATABASE_URL",
+            "TOKEN_ENCRYPTION_KEY",
+            "CSRF_SECRET",
+            "AUTH_PERSISTENCE_ENABLED",
         ] {
             if let Ok(value) = std::env::var(key) {
                 values.insert(key.to_owned(), value);
