@@ -139,6 +139,11 @@ function App() {
   }, [loadPredictions])
 
   const loadLocal = useCallback(async (repoPath: string) => {
+    if (import.meta.env.PROD) {
+      setError('Local repository analysis is only available in local development.')
+      setLoading(false)
+      return
+    }
     const localError = describeLocalPathError(repoPath)
     if (localError) {
       setError(localError)
@@ -187,6 +192,9 @@ function App() {
     setRefreshing(true)
     setError(null)
     try {
+      if (source.kind !== 'github' && import.meta.env.PROD) {
+        throw new Error('Local repository analysis is only available in local development.')
+      }
       const result =
         source.kind === 'github'
           ? await fetchRepositoryAnalysis(source.owner, source.repo)

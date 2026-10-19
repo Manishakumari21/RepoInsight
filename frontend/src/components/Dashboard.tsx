@@ -133,6 +133,9 @@ export function Dashboard({
     setRippleError(null)
     setRippleSource(trimmed)
     try {
+      if (source.kind !== 'github' && import.meta.env.PROD) {
+        throw new Error('Local repository analysis is only available in local development.')
+      }
       const result =
         source.kind === 'github'
           ? await fetchRipple(source.owner, source.repo, { source: trimmed })
@@ -153,6 +156,9 @@ export function Dashboard({
     setImpactError(null)
     setImpactDescription(trimmed)
     try {
+      if (source.kind !== 'github' && import.meta.env.PROD) {
+        throw new Error('Local repository analysis is only available in local development.')
+      }
       const result =
         source.kind === 'github'
           ? await fetchImpact(source.owner, source.repo, {

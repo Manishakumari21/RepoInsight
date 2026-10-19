@@ -113,6 +113,9 @@ export async function fetchRepositoryAnalysis(
 }
 
 export async function fetchLocalAnalysis(repoPath: string): Promise<RepositoryAnalysis> {
+  if (import.meta.env.PROD) {
+    throw new Error('Local repository analysis is only available in local development.')
+  }
   const url = `${VITE_API_BASE}/api/local/analysis`
 
   let response: Response
@@ -185,6 +188,9 @@ export async function fetchPredictions(
 export async function fetchLocalPredictions(
   repoPath: string,
 ): Promise<PredictionsResponse> {
+  if (import.meta.env.PROD) {
+    throw new Error('Local repository analysis is only available in local development.')
+  }
   const url = `${VITE_API_BASE}/api/local/predictions`
   return fetchJson<PredictionsResponse>(
     url,
@@ -271,6 +277,9 @@ export async function fetchLocalRipple(
   repoPath: string,
   query: RippleQuery,
 ): Promise<RippleResponse> {
+  if (import.meta.env.PROD) {
+    throw new Error('Local repository analysis is only available in local development.')
+  }
   const url = `${VITE_API_BASE}/api/local/ripple`
   return fetchJson<RippleResponse>(
     url,
@@ -315,6 +324,9 @@ export async function fetchLocalImpact(
   repoPath: string,
   query: ImpactQuery,
 ): Promise<ImpactResponse> {
+  if (import.meta.env.PROD) {
+    throw new Error('Local repository analysis is only available in local development.')
+  }
   const url = `${VITE_API_BASE}/api/local/impact-simulation`
   return fetchJson<ImpactResponse>(
     url,
